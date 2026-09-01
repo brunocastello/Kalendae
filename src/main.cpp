@@ -19,12 +19,14 @@
 // Global variables
 static WindowPtr gMainWindow = NULL;
 static Calendar gCalendar;
+static UIRenderer gUIRenderer;
 
 // Forward declarations
 static void SetupApplication();
 static void HandleEvent(EventRecord *event);
 static void HandleWindowEvent(EventRecord *event);
 static void HandleCommandEvent(EventRecord *event);
+static void HandleUpdateEvent(EventRecord *event);
 
 int main()
 {
@@ -70,6 +72,9 @@ static void SetupApplication()
     // Show window
     SetPort(gMainWindow);
     ShowWindow(gMainWindow);
+
+    // Set up offscreen rendering for the window
+    gUIRenderer.Initialize(gMainWindow);
 }
 
 static void HandleEvent(EventRecord *event)
@@ -89,10 +94,26 @@ static void HandleEvent(EventRecord *event)
             // Handle AppleEvents
             break;
 
+        case updateEvt:
+            HandleUpdateEvent(event);
+            break;
+
         default:
             // Handle other events
             break;
     }
+}
+
+static void HandleUpdateEvent(EventRecord *event)
+{
+    WindowPtr window = (WindowPtr)event->message;
+
+    BeginUpdate(window);
+    if (window == gMainWindow)
+    {
+        gUIRenderer.RenderMonthView(gCalendar, window->portRect);
+    }
+    EndUpdate(window);
 }
 
 static void HandleWindowEvent(EventRecord *event)
