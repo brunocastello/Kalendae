@@ -80,6 +80,7 @@ static void SetupSidebar();
 static void DrawSidebar();
 static void SetupMiniCalendarButtons();
 static void DrawMiniCalendar();
+static bool HandleMiniCalendarClick(Point clickPoint);
 static short MiniCalendarTop();
 static void ChangeMonth(int delta);
 static void SwitchToView(ViewType view);
@@ -294,13 +295,39 @@ static void DrawCString(const char *str)
     DrawString(pstr);
 }
 
+// Shared by drawing and click hit-testing so the two can never disagree
+// about where each day number actually sits.
+struct MiniCalGeometry
+{
+    short colWidth;
+    short weekdayRow;
+    short gridTop;
+    short rowHeight;
+    int firstWeekday;
+    int daysInMonth;
+};
+
+static MiniCalGeometry ComputeMiniCalGeometry()
+{
+    Date date = gCalendar->GetCurrentDate();
+
+    MiniCalGeometry g;
+    g.colWidth = (kSidebarWidth - 20) / 7;
+    g.weekdayRow = MiniCalendarTop() + 30;
+    g.rowHeight = 14;
+    g.gridTop = g.weekdayRow + g.rowHeight;
+    g.firstWeekday = Date(date.year, date.month, 1).DayOfWeek();
+    g.daysInMonth = Date::DaysInMonth(date.year, date.month);
+    return g;
+}
+
 static void DrawMiniCalendar()
 {
     static const char *kMiniWeekdayNames[] = { "S", "M", "T", "W", "T", "F", "S" };
 
     Date date = gCalendar->GetCurrentDate();
     short top = MiniCalendarTop();
-    short colWidth = (kSidebarWidth - 20) / 7;
+    MiniCalGeometry g = ComputeMiniCalGeometry();
 
     TextSize(10);
     TextFace(normal);
@@ -310,28 +337,47 @@ static void DrawMiniCalendar()
     MoveTo(40, top + 12);
     DrawCString(titleBuf);
 
-    short weekdayRow = top + 30;
     for (int i = 0; i < 7; i++)
     {
-        MoveTo(10 + i * colWidth, weekdayRow);
+        MoveTo(10 + i * g.colWidth, g.weekdayRow);
         DrawCString(kMiniWeekdayNames[i]);
     }
 
-    int firstWeekday = Date(date.year, date.month, 1).DayOfWeek();
-    int daysInMonth = Date::DaysInMonth(date.year, date.month);
-    short rowHeight = 14;
-
-    for (int day = 1; day <= daysInMonth; day++)
+    for (int day = 1; day <= g.daysInMonth; day++)
     {
-        int index = firstWeekday + day - 1;
+        int index = g.firstWeekday + day - 1;
         int row = index / 7;
         int col = index % 7;
 
         char numBuf[4];
         snprintf(numBuf, sizeof(numBuf), "%d", day);
-        MoveTo(10 + col * colWidth, weekdayRow + 14 + row * rowHeight);
+        MoveTo(10 + col * g.colWidth, g.gridTop + row * g.rowHeight);
         DrawCString(numBuf);
     }
+}
+
+// Returns true if the click landed on a valid day number, in which case
+// it has already navigated there.
+static bool HandleMiniCalendarClick(Point clickPoint)
+{
+    MiniCalGeometry g = ComputeMiniCalGeometry();
+
+    if (clickPoint.h < 10 || clickPoint.v < g.gridTop)
+        return false;
+
+    int col = (clickPoint.h - 10) / g.colWidth;
+    int row = (clickPoint.v - g.gridTop) / g.rowHeight;
+    if (col < 0 || col > 6)
+        return false;
+
+    int day = row * 7 + col - g.firstWeekday + 1;
+    if (day < 1 || day > g.daysInMonth)
+        return false;
+
+    Date date = gCalendar->GetCurrentDate();
+    gCalendar->SetCurrentDate(Date(date.year, date.month, day));
+    SwitchToView(DayView);
+    return true;
 }
 
 static void SwitchToView(ViewType view)
@@ -493,6 +539,10 @@ static void HandleWindowEvent(EventRecord *event)
                         SwitchToView((ViewType)ref);
                     }
                 }
+            }
+            else
+            {
+                HandleMiniCalendarClick(clickPoint);
             }
 
             // Handle event interaction here
