@@ -14,9 +14,12 @@
 #ifndef UI_RENDERER_H
 #define UI_RENDERER_H
 
+// Every classic-named Multiversal header (Quickdraw.h, Windows.h, ...) is
+// just a wrapper around one master Multiverse.h containing every Manager's
+// declarations, so <Windows.h> already brings in the List Manager too --
+// there is no separate ListMgr.h/Lists.h file to include.
 #include <Quickdraw.h>
 #include <Windows.h>
-#include <ListMgr.h>
 #include "calendar.h"
 
 class UIRenderer
