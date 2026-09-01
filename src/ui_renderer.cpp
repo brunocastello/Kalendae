@@ -225,7 +225,57 @@ void UIRenderer::DrawMonthViewGrid(const Calendar& calendar, const Rect& bounds)
 
 void UIRenderer::DrawEventsForMonth(const Calendar& calendar, const Rect& bounds)
 {
-    // Render events for month view
+    if (!mMonthList)
+        return;
+
+    Date date = calendar.GetCurrentDate();
+    int firstWeekday = Date(date.year, date.month, 1).DayOfWeek();
+    int daysInMonth = Date::DaysInMonth(date.year, date.month);
+    const std::map<std::string, ColorRGB>& categories = calendar.GetCategories();
+
+    TextSize(9);
+
+    for (int day = 1; day <= daysInMonth; day++)
+    {
+        Date cellDate(date.year, date.month, day);
+        std::vector<Event> events = calendar.GetEventsForDate(cellDate);
+        if (events.empty())
+            continue;
+
+        int index = firstWeekday + day - 1;
+        Cell cell;
+        cell.h = (short)(index % 7);
+        cell.v = (short)(index / 7);
+
+        Rect cellRect;
+        LRect(&cellRect, cell, mMonthList);
+
+        ColorRGB color(128, 128, 128);
+        std::map<std::string, ColorRGB>::const_iterator catIt = categories.find(events[0].GetCategory());
+        if (catIt != categories.end())
+            color = catIt->second;
+
+        Rect swatch;
+        swatch.top = cellRect.top + 16;
+        swatch.left = cellRect.left + 4;
+        swatch.bottom = swatch.top + 8;
+        swatch.right = swatch.left + 8;
+
+        RGBColor rgb;
+        rgb.red = (unsigned short)(color.r << 8);
+        rgb.green = (unsigned short)(color.g << 8);
+        rgb.blue = (unsigned short)(color.b << 8);
+        RGBForeColor(&rgb);
+        PaintRect(&swatch);
+
+        RGBColor black = {0, 0, 0};
+        RGBForeColor(&black);
+
+        char titleBuf[16];
+        snprintf(titleBuf, sizeof(titleBuf), "%.10s", events[0].GetTitle().c_str());
+        MoveTo(swatch.right + 3, swatch.bottom);
+        DrawCString(titleBuf);
+    }
 }
 
 void UIRenderer::DrawYearViewHeader(const Calendar& calendar, const Rect& bounds)

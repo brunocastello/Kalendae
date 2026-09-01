@@ -11,7 +11,7 @@
 #include "ui_renderer.h"
 
 // Calendar implementation
-Calendar::Calendar() : mCurrentView(DayView), mCurrentDate(2026, 8, 31)
+Calendar::Calendar() : mCurrentView(DayView), mCurrentDate(2026, 9, 1)
 {
     // Initialize calendar with default settings
     mCategories["Work"] = ColorRGB(255, 0, 0);     // Red
@@ -31,6 +31,23 @@ void Calendar::LoadFromPreferences()
 
     // For now, just initialize with default categories
     InitializeDefaultCategories();
+
+    // A few sample events in the current month so the grid has something
+    // to show before real .ics import is wired up.
+    Event meeting("Team Meeting", Date(mCurrentDate.year, mCurrentDate.month, 5),
+                  Date(mCurrentDate.year, mCurrentDate.month, 5));
+    meeting.SetCategory("Work");
+    AddEvent(meeting);
+
+    Event trip("Weekend Trip", Date(mCurrentDate.year, mCurrentDate.month, 15),
+               Date(mCurrentDate.year, mCurrentDate.month, 16));
+    trip.SetCategory("Personal");
+    AddEvent(trip);
+
+    Event meetup("Retro Meetup", Date(mCurrentDate.year, mCurrentDate.month, 22),
+                 Date(mCurrentDate.year, mCurrentDate.month, 22));
+    meetup.SetCategory("Retro");
+    AddEvent(meetup);
 }
 
 void Calendar::SaveToPreferences()
