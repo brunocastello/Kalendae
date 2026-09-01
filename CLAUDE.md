@@ -8,14 +8,14 @@ This repository contains **Kalendae**, a native Classic Mac OS Calendar applicat
 
 ## Build & Compilation Rules (GitHub Actions Only)
 * **No Local Compilation:** This project is never compiled locally. All builds execute exclusively inside automated **GitHub Actions** workflows[cite: 13, 14, 15].
-* **Toolchain:** The build environment relies on **Retro68** and **Apple Universal Headers** running inside a containerized or automated CI pipeline[cite: 13, 14, 15].
+* **Toolchain:** The build environment relies on the prebuilt **Retro68** toolchain container (`ghcr.io/autc04/retro68`) running inside GitHub Actions. It uses Retro68's bundled open-source **Multiversal Interfaces** rather than Apple's Universal Interfaces, since Apple no longer distributes the latter and its license does not permit redistribution — meaning it cannot be auto-fetched in CI[cite: 13, 14, 15].
 * **CMake & Make Configuration:** 
   * Configure: `cmake .. -DCMAKE_BUILD_TYPE=Release`[cite: 13, 14, 15]
   * Compile: `make`[cite: 13, 14, 15]
 * **Target Output:** Standard Mac OS application binary with resource forks (`APPL` type, custom creator code) generated as a CI build artifact[cite: 13, 14, 15].
 
 ## Technical Guidelines & Constraints
-1. **Target Environment:** Classic Mac OS / Carbon targeting PowerPC architectures using the Retro68 toolchain[cite: 13, 14, 15].
+1. **Target Environment:** Classic Mac OS (System 7–9) targeting PowerPC architectures using the Retro68 toolchain and the classic (pre-Carbon) Mac Toolbox APIs — Multiversal Interfaces do not implement Carbon[cite: 13, 14, 15].
 2. **UI & Theme:** Implement authentic Mac OS 9 Platinum controls, Geneva typography, drop shadows, and anti-flicker rendering via QuickDraw Offscreen Graphics Worlds (`GWorld`)[cite: 13, 14, 15].
 3. **Data Management:** 
    * Zero external cloud services or network dependencies[cite: 13, 14, 15].

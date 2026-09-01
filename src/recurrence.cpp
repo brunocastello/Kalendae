@@ -4,7 +4,6 @@
  * Recurrence rule evaluation engine
  */
 
-#include <Carbon/Carbon.h>
 #include "recurrence.h"
 #include "calendar.h"
 

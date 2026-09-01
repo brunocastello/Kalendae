@@ -1,5 +1,9 @@
 # GitHub Actions workflow for building Kalendae on Mac OS 9
-# This workflow builds the Classic Mac OS 9 Calendar application using Retro68 toolchain
+#
+# Builds the Classic Mac OS 9 / PowerPC calendar application using the
+# official prebuilt Retro68 cross-compilation toolchain image
+# (https://github.com/autc04/Retro68), so no toolchain compilation is
+# needed in CI.
 
 name: Build Kalendae for Mac OS 9
 
@@ -11,60 +15,30 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
-
-    strategy:
-      matrix:
-        os: [macos-latest]
-        toolchain: [retro68]
+    runs-on: ubuntu-latest
+    container: ghcr.io/autc04/retro68:latest
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
-
-    - name: Setup Retro68 toolchain
-      run: |
-        # Install Retro68 toolchain
-        brew tap retro68/retro68
-        brew install retro68
-
-        # Verify installation
-        retro68 --version
-
-    - name: Install Universal Headers
-      run: |
-        # Download and install Apple Universal Headers
-        curl -L -o UniversalHeaders.zip "https://github.com/retro68/Universal-Headers/releases/download/latest/UniversalHeaders.zip"
-        unzip UniversalHeaders.zip -d /tmp/UniversalHeaders
+      uses: actions/checkout@v4
 
     - name: Configure build
       run: |
-        # Create build directory
         mkdir -p build
         cd build
-
-        # Configure with CMake
-        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=../retro68-toolchain.cmake
+        cmake .. -DCMAKE_BUILD_TYPE=Release \
+                 -DCMAKE_TOOLCHAIN_FILE=/Retro68-build/toolchain/powerpc-apple-macos/cmake/retroppc.toolchain.cmake
 
     - name: Build application
       run: |
         cd build
         make
 
-    - name: Package application
-      run: |
-        # Create a package directory
-        mkdir -p Kalendae.app/Contents/MacOS
-        mkdir -p Kalendae.app/Contents/Resources
-
-        # Copy the built binary (this is where it would go)
-        cp build/Kalendae Kalendae.app/Contents/MacOS/Kalendae
-
-        # Copy resources and Info.plist
-        cp Resources/Info.plist Kalendae.app/Contents/
-
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
       with:
-        name: Kalendae-MacOS9-Build
-        path: Kalendae.app
+        name: Kalendae-MacOS9-PPC
+        path: |
+          build/Kalendae.bin
+          build/Kalendae.APPL
+          build/Kalendae.dsk

@@ -52,10 +52,15 @@ public:
     void SetDescription(const std::string& description) { mDescription = description; }
     std::string GetDescription() const { return mDescription; }
 
-    // Comparison (for sorting)
+    // Comparison (for sorting and lookup)
     bool operator<(const Event& other) const
     {
         return mStartTime < other.mStartTime;
+    }
+
+    bool operator==(const Event& other) const
+    {
+        return mTitle == other.mTitle && mStartTime == other.mStartTime && mEndTime == other.mEndTime;
     }
 
 private:

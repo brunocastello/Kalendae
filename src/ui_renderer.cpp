@@ -4,7 +4,6 @@
  * UI Rendering engine using QuickDraw and GWorld
  */
 
-#include <Carbon/Carbon.h>
 #include "ui_renderer.h"
 #include "calendar.h"
 
@@ -26,13 +25,12 @@ UIRenderer::~UIRenderer()
     }
 }
 
-bool UIRenderer::Initialize(WindowRef window)
+bool UIRenderer::Initialize(WindowPtr window)
 {
     mMainWindow = window;
 
     // Create GWorld for offscreen rendering to prevent flicker
-    Rect bounds;
-    GetWindowBounds(window, kWindowContentRgn, &bounds);
+    Rect bounds = window->portRect;
 
     // Create GWorld with same dimensions
     GDHandle gd = GetMainDevice();
@@ -66,9 +64,9 @@ void UIRenderer::RenderDayView(const Calendar& calendar, const Rect& bounds)
     SetGWorld(mGWorld, nil);
 
     // Fill with background color (Mac OS 9 Platinum theme)
-    RGBColor backgroundColor = {0xCCCCCC, 0xCCCCCC, 0xCCCCCC};
+    RGBColor backgroundColor = {0xCCCC, 0xCCCC, 0xCCCC};
     RGBBackColor(&backgroundColor);
-    FillRect(&bounds, &blackColor);
+    EraseRect(&bounds);
 
     // Draw the day view elements
     DrawDayViewHeader(currentDate, bounds);
@@ -98,9 +96,9 @@ void UIRenderer::RenderWeekView(const Calendar& calendar, const Rect& bounds)
     SetGWorld(mGWorld, nil);
 
     // Fill with background color
-    RGBColor backgroundColor = {0xCCCCCC, 0xCCCCCC, 0xCCCCCC};
+    RGBColor backgroundColor = {0xCCCC, 0xCCCC, 0xCCCC};
     RGBBackColor(&backgroundColor);
-    FillRect(&bounds, &blackColor);
+    EraseRect(&bounds);
 
     // Draw week view elements
     DrawWeekViewHeader(calendar, bounds);
@@ -130,9 +128,9 @@ void UIRenderer::RenderMonthView(const Calendar& calendar, const Rect& bounds)
     SetGWorld(mGWorld, nil);
 
     // Fill with background color
-    RGBColor backgroundColor = {0xCCCCCC, 0xCCCCCC, 0xCCCCCC};
+    RGBColor backgroundColor = {0xCCCC, 0xCCCC, 0xCCCC};
     RGBBackColor(&backgroundColor);
-    FillRect(&bounds, &blackColor);
+    EraseRect(&bounds);
 
     // Draw month view elements
     DrawMonthViewHeader(calendar, bounds);
@@ -162,9 +160,9 @@ void UIRenderer::RenderYearView(const Calendar& calendar, const Rect& bounds)
     SetGWorld(mGWorld, nil);
 
     // Fill with background color
-    RGBColor backgroundColor = {0xCCCCCC, 0xCCCCCC, 0xCCCCCC};
+    RGBColor backgroundColor = {0xCCCC, 0xCCCC, 0xCCCC};
     RGBBackColor(&backgroundColor);
-    FillRect(&bounds, &blackColor);
+    EraseRect(&bounds);
 
     // Draw year view elements
     DrawYearViewHeader(calendar, bounds);

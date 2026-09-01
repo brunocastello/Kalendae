@@ -4,7 +4,6 @@
  * iCalendar (.ics) file parser
  */
 
-#include <Carbon/Carbon.h>
 #include <fstream>
 #include <sstream>
 #include <string>

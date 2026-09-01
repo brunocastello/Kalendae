@@ -4,13 +4,20 @@
  * Main application entry point and event loop
  */
 
-#include <Carbon/Carbon.h>
+#include <Quickdraw.h>
+#include <Windows.h>
+#include <Menus.h>
+#include <Fonts.h>
+#include <TextEdit.h>
+#include <Dialogs.h>
+#include <Events.h>
+#include <Processes.h>
 #include "calendar.h"
 #include "ical_parser.h"
 #include "ui_renderer.h"
 
 // Global variables
-static WindowRef gMainWindow = NULL;
+static WindowPtr gMainWindow = NULL;
 static Calendar gCalendar;
 
 // Forward declarations
@@ -45,22 +52,24 @@ int main()
 
 static void SetupApplication()
 {
-    // Set up application menus, windows, etc.
+    // Classic Toolbox Manager initialization
+    InitGraf(&qd.thePort);
+    InitFonts();
+    InitWindows();
+    InitMenus();
+    TEInit();
+    InitDialogs(NULL);
+    InitCursor();
+    FlushEvents(everyEvent, 0);
 
     // Create main window
     Rect windowRect = { 50, 50, 500, 600 };
-    CreateNewWindow(kDocumentWindowClass, kWindowStandardHandlerAttribute,
-                    &windowRect, &gMainWindow);
-
-    // Set window title
-    SetWTitle(gMainWindow, "\pKalendae - Mac OS 9 Calendar");
+    gMainWindow = NewWindow(NULL, &windowRect, "\pKalendae - Mac OS 9 Calendar",
+                             true, documentProc, (WindowPtr)-1L, true, 0);
 
     // Show window
+    SetPort(gMainWindow);
     ShowWindow(gMainWindow);
-
-    // Register for Carbon events
-    RegisterEventClass(kEventClassWindow);
-    RegisterEventClass(kEventClassCommand);
 }
 
 static void HandleEvent(EventRecord *event)
@@ -88,15 +97,12 @@ static void HandleEvent(EventRecord *event)
 
 static void HandleWindowEvent(EventRecord *event)
 {
-    WindowRef window;
-    WindowRef windowUnderMouse;
+    WindowPtr window;
 
-    switch (FindWindow(event->where, &windowUnderMouse))
+    switch (FindWindow(event->where, &window))
     {
         case inContent:
             // Content area clicked
-            window = windowUnderMouse;
-            // Handle content interactions
 
             // Check if the click was on a calendar event
             Point clickPoint = event->where;

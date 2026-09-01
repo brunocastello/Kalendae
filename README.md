@@ -26,30 +26,29 @@ Kalendae is a vintage Mac OS 9 application that provides a modern calendar exper
 
 - Mac OS 9 Platinum Theme
 - PowerPC hardware (no Intel support)
-- Carbon framework availability
+- Classic (pre-Carbon) Mac Toolbox APIs
 - Retro68 toolchain for compilation
 
 ## Build Instructions
 
-### Using Retro68 toolchain (for Mac OS 9 builds):
+Builds run exclusively in GitHub Actions (see `.github/workflows/build-macos9.yml`), using the
+prebuilt `ghcr.io/autc04/retro68` toolchain container — there is no supported local build. To
+reproduce it yourself with Docker:
 
 ```bash
-# Clone the repository
-git clone <repository-url>
-
-# Create build directory
-mkdir build && cd build
-
-# Configure with CMake
-cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=../retro68-toolchain.cmake
-
-# Build the application
-make
+docker run --rm -v $(pwd):/root/Kalendae -w /root/Kalendae ghcr.io/autc04/retro68 /bin/bash -c '
+  mkdir -p build && cd build &&
+  cmake .. -DCMAKE_BUILD_TYPE=Release \
+           -DCMAKE_TOOLCHAIN_FILE=/Retro68-build/toolchain/powerpc-apple-macos/cmake/retroppc.toolchain.cmake &&
+  make
+'
 ```
 
 ### Build Artifacts
 
-- `Kalendae.app` - The compiled Mac OS 9 application bundle
+- `Kalendae.bin` - MacBinary-encoded application (single-fork transfer format)
+- `Kalendae.APPL` - AppleSingle-encoded application
+- `Kalendae.dsk` - Bootable floppy disk image containing the application
 - `.ics` files for calendar data exchange
 - Preferences stored in `System Folder:Preferences`
 
@@ -57,8 +56,7 @@ make
 
 ```
 Kalendae/
-├── CMakeLists.txt           # CMake build configuration
-├── retro68-toolchain.cmake  # Retro68 cross-compilation toolchain
+├── CMakeLists.txt           # CMake build configuration (Retro68 add_application)
 ├── README.md                # This file
 ├── CLAUDE.md                # Project documentation
 ├── PROJECT.md               # Technical specification
@@ -67,21 +65,20 @@ Kalendae/
 │   └── workflows/
 │       └── build-macos9.yml  # GitHub Actions workflow
 ├── Resources/
-│   └── Info.plist          # Application bundle configuration
+│   └── Kalendae.r          # Rez resource file (SIZE resource)
 ├── src/
 │   ├── main.cpp            # Main application entry point
 │   ├── calendar.cpp        # Calendar management
 │   ├── ical_parser.cpp     # iCalendar file parser
 │   ├── ui_renderer.cpp     # UI rendering engine
 │   ├── event.cpp           # Event handling
-│   ├── recurrence.cpp      # Recurrence rule evaluation
-│   └── ui_renderer.cpp     # UI rendering engine
+│   └── recurrence.cpp      # Recurrence rule evaluation
 ├── include/
 │   ├── calendar.h          # Calendar header
 │   ├── event.h             # Event header
 │   ├── ical_parser.h       # iCalendar parser header
 │   ├── ui_renderer.h       # UI renderer header
-│   └── recurrence.h       # Recurrence engine header
+│   └── recurrence.h        # Recurrence engine header
 └── LAYOUT.jpg              # UI layout reference (ignored by git)
 ```
 
@@ -93,7 +90,7 @@ The code base implements the core architecture outlined in PROJECT.md, featuring
 - Multi-view calendar rendering (Day, Week, Month, Year)
 - iCalendar format parsing and export
 - Recurrence rule evaluation in memory
-- Carbon APIs for Mac OS 9 compatibility
+- Classic (pre-Carbon) Mac Toolbox APIs for Mac OS 9 compatibility
 - QuickDraw offscreen rendering with GWorld for anti-flicker effects
 
 ## License

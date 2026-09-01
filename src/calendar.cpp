@@ -4,7 +4,7 @@
  * Calendar management and view rendering
  */
 
-#include <Carbon/Carbon.h>
+#include <algorithm>
 #include "calendar.h"
 #include "event.h"
 #include "ical_parser.h"

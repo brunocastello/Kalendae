@@ -4,11 +4,10 @@
  * Event management and recurrence handling
  */
 
-#include <Carbon/Carbon.h>
 #include "event.h"
 #include "calendar.h"
 
-Event::Event() : mStartTime(0), mEndTime(0), mAllDay(false)
+Event::Event() : mAllDay(false)
 {
 }
 

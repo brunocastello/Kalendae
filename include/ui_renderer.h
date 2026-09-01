@@ -7,7 +7,9 @@
 #ifndef UI_RENDERER_H
 #define UI_RENDERER_H
 
-#include <Carbon/Carbon.h>
+#include <Quickdraw.h>
+#include <QDOffscreen.h>
+#include <Windows.h>
 #include "calendar.h"
 
 class UIRenderer
@@ -17,7 +19,7 @@ public:
     ~UIRenderer();
 
     // Initialize the renderer with a window
-    bool Initialize(WindowRef window);
+    bool Initialize(WindowPtr window);
 
     // Render different calendar views
     void RenderDayView(const Calendar& calendar, const Rect& bounds);
@@ -43,7 +45,7 @@ private:
     void DrawYearViewGrid(const Rect& bounds);
 
     // Window and rendering context
-    WindowRef mMainWindow;
+    WindowPtr mMainWindow;
     GWorldPtr mGWorld;
     bool mIsInitialized;
 };
