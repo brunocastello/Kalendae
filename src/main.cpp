@@ -1,7 +1,19 @@
 /*
  * Kalendae - Classic Mac OS 9 Calendar Application
  *
- * Main application entry point and event loop
+ * Main application entry point and event loop.
+ *
+ * Deliberately minimal and free of C++ classes/STL containers for now:
+ * four straight rewrites of the update/render path all froze the whole
+ * emulated system identically, which points at something in this
+ * project's C++/STL usage on the classic PowerPC target rather than at
+ * any one drawing call -- Retro68's PowerPC crt0 (libretro/ppcstart.c)
+ * confirmed does not run global C++ constructors the way its 68k crt0
+ * does, and that combination (classic PowerPC + modern GCC libstdc++)
+ * gets very little real-world exercise. This file matches the plain
+ * Toolbox-only window+event-loop shape as closely as possible to a
+ * known-working Retro68 sample, to get a stable, non-crashing baseline
+ * before layering the Calendar/UIRenderer classes back in.
  */
 
 #include <Quickdraw.h>
@@ -12,82 +24,64 @@
 #include <Dialogs.h>
 #include <Events.h>
 #include <Processes.h>
-#include "calendar.h"
-#include "ical_parser.h"
-#include "ui_renderer.h"
 
-// Global variables. gCalendar/gUIRenderer are pointers, heap-allocated
-// explicitly in main() rather than file-scope objects, because Retro68's
-// classic-PowerPC crt0 (libretro/ppcstart.c) jumps straight from __start
-// to main() and never runs C++ global constructors -- a file-scope
-// Calendar's std::map member would sit as zeroed-but-never-constructed
-// memory, which is undefined behavior the instant anything touches it.
-// A raw pointer needs no constructor, so it is safe to zero-initialize
-// at file scope; the real object is built by an explicit `new` once
-// main() is actually running.
 static WindowPtr gMainWindow = NULL;
-static Calendar *gCalendar = NULL;
-static UIRenderer *gUIRenderer = NULL;
 
-// Forward declarations
-static void SetupApplication();
-static void HandleEvent(EventRecord *event);
-static void HandleWindowEvent(EventRecord *event);
-static void HandleCommandEvent(EventRecord *event);
-static void HandleUpdateEvent(EventRecord *event);
+static const unsigned char kWindowTitle[] = {
+    28, 'K', 'a', 'l', 'e', 'n', 'd', 'a', 'e', ' ', '-', ' ',
+    'M', 'a', 'c', ' ', 'O', 'S', ' ', '9', ' ', 'C', 'a', 'l', 'e', 'n', 'd', 'a', 'r'
+};
 
-int main()
+static const unsigned char kBodyText[] = {
+    16, 'K', 'a', 'l', 'e', 'n', 'd', 'a', 'e', ' ', 'r', 'u', 'n', 'n', 'i', 'n', 'g'
+};
+
+static void DrawContent(void)
 {
-    // Construct the app's objects explicitly, now that we're definitely
-    // running (see the comment on the globals above for why).
-    gCalendar = new Calendar();
-    gUIRenderer = new UIRenderer();
+    RGBColor backgroundColor = {0xCCCC, 0xCCCC, 0xCCCC};
+    RGBBackColor(&backgroundColor);
+    EraseRect(&gMainWindow->portRect);
 
-    // Initialize the application
-    SetupApplication();
-
-    // Load calendar data from preferences
-    gCalendar->LoadFromPreferences();
-
-    // Main event loop
-    EventRecord event;
-    while (true)
-    {
-        if (WaitNextEvent(everyEvent, &event, 10, NULL))
-        {
-            HandleEvent(&event);
-        }
-
-        // Handle any background tasks
-        gCalendar->ProcessBackgroundTasks();
-    }
-
-    return 0;
+    MoveTo(20, 30);
+    DrawString(kBodyText);
 }
 
-static void SetupApplication()
+static void HandleUpdateEvent(EventRecord *event)
 {
-    // Classic Toolbox Manager initialization
-    InitGraf(&qd.thePort);
-    InitFonts();
-    InitWindows();
-    InitMenus();
-    TEInit();
-    InitDialogs(NULL);
-    InitCursor();
-    FlushEvents(everyEvent, 0);
+    WindowPtr window = (WindowPtr)event->message;
 
-    // Create main window. NewCWindow (color) rather than NewWindow, since
-    // UIRenderer uses RGBBackColor for the Platinum background.
-    Rect windowRect = { 50, 50, 500, 600 };
-    gMainWindow = NewCWindow(NULL, &windowRect, "\pKalendae - Mac OS 9 Calendar",
-                              true, documentProc, (WindowPtr)-1L, true, 0);
+    SetPort(window);
+    BeginUpdate(window);
+    if (window == gMainWindow)
+    {
+        DrawContent();
+    }
+    EndUpdate(window);
+}
 
-    // Show window
-    SetPort(gMainWindow);
-    ShowWindow(gMainWindow);
+static void HandleWindowEvent(EventRecord *event)
+{
+    WindowPtr window;
 
-    gUIRenderer->Initialize(gMainWindow);
+    if (FindWindow(event->where, &window) == inGoAway)
+    {
+        if (TrackGoAway(window, event->where))
+        {
+            ExitToShell();
+        }
+    }
+}
+
+static void HandleCommandEvent(EventRecord *event)
+{
+    if (event->modifiers & cmdKey)
+    {
+        char ch = (char)(event->message & charCodeMask);
+        if (ch == 'q' || ch == 'Q')
+        {
+            ExitToShell();
+        }
+    }
 }
 
 static void HandleEvent(EventRecord *event)
@@ -103,72 +97,46 @@ static void HandleEvent(EventRecord *event)
             HandleCommandEvent(event);
             break;
 
-        case kHighLevelEvent:
-            // Handle AppleEvents
-            break;
-
         case updateEvt:
             HandleUpdateEvent(event);
             break;
 
         default:
-            // Handle other events
             break;
     }
 }
 
-static void HandleUpdateEvent(EventRecord *event)
+static void SetupApplication(void)
 {
-    WindowPtr window = (WindowPtr)event->message;
+    InitGraf(&qd.thePort);
+    InitFonts();
+    InitWindows();
+    InitMenus();
+    TEInit();
+    InitDialogs(NULL);
+    InitCursor();
+    FlushEvents(everyEvent, 0);
 
-    // BeginUpdate/EndUpdate operate on the *current* port's update region --
-    // without SetPort first, they act on whatever port was last current
-    // (possibly none of our windows), so this window's update region never
-    // gets validated and WaitNextEvent keeps redelivering the same updateEvt
-    // forever with no idle time, starving the whole cooperative system.
-    SetPort(window);
-    BeginUpdate(window);
-    if (window == gMainWindow)
-    {
-        gUIRenderer->RenderMonthView(*gCalendar, window->portRect);
-    }
-    EndUpdate(window);
+    Rect windowRect = { 50, 50, 500, 600 };
+    gMainWindow = NewCWindow(NULL, &windowRect, kWindowTitle,
+                              true, documentProc, (WindowPtr)-1L, true, 0);
+
+    SetPort(gMainWindow);
+    ShowWindow(gMainWindow);
 }
 
-static void HandleWindowEvent(EventRecord *event)
+int main(void)
 {
-    WindowPtr window;
+    SetupApplication();
 
-    switch (FindWindow(event->where, &window))
+    EventRecord event;
+    for (;;)
     {
-        case inContent:
+        if (WaitNextEvent(everyEvent, &event, 10, NULL))
         {
-            // Content area clicked
-
-            // Check if the click was on a calendar event
-            Point clickPoint = event->where;
-            // Convert to local coordinates
-            GlobalToLocal(&clickPoint);
-
-            // Handle event interaction here
-            break;
+            HandleEvent(&event);
         }
-
-        case inMenuBar:
-            // Handle menu bar clicks
-            break;
     }
-}
 
-static void HandleCommandEvent(EventRecord *event)
-{
-    // Handle keyboard commands
-    switch (event->message & charCodeMask)
-    {
-        case 'q':
-        case 'Q':
-            // Quit application
-            ExitToShell();
-            break;
-    }
+    return 0;
 }
