@@ -16,10 +16,18 @@
 #include "ical_parser.h"
 #include "ui_renderer.h"
 
-// Global variables
+// Global variables. gCalendar/gUIRenderer are pointers, heap-allocated
+// explicitly in main() rather than file-scope objects, because Retro68's
+// classic-PowerPC crt0 (libretro/ppcstart.c) jumps straight from __start
+// to main() and never runs C++ global constructors -- a file-scope
+// Calendar's std::map member would sit as zeroed-but-never-constructed
+// memory, which is undefined behavior the instant anything touches it.
+// A raw pointer needs no constructor, so it is safe to zero-initialize
+// at file scope; the real object is built by an explicit `new` once
+// main() is actually running.
 static WindowPtr gMainWindow = NULL;
-static Calendar gCalendar;
-static UIRenderer gUIRenderer;
+static Calendar *gCalendar = NULL;
+static UIRenderer *gUIRenderer = NULL;
 
 // Forward declarations
 static void SetupApplication();
@@ -30,11 +38,16 @@ static void HandleUpdateEvent(EventRecord *event);
 
 int main()
 {
+    // Construct the app's objects explicitly, now that we're definitely
+    // running (see the comment on the globals above for why).
+    gCalendar = new Calendar();
+    gUIRenderer = new UIRenderer();
+
     // Initialize the application
     SetupApplication();
 
     // Load calendar data from preferences
-    gCalendar.LoadFromPreferences();
+    gCalendar->LoadFromPreferences();
 
     // Main event loop
     EventRecord event;
@@ -46,7 +59,7 @@ int main()
         }
 
         // Handle any background tasks
-        gCalendar.ProcessBackgroundTasks();
+        gCalendar->ProcessBackgroundTasks();
     }
 
     return 0;
@@ -74,7 +87,7 @@ static void SetupApplication()
     SetPort(gMainWindow);
     ShowWindow(gMainWindow);
 
-    gUIRenderer.Initialize(gMainWindow);
+    gUIRenderer->Initialize(gMainWindow);
 }
 
 static void HandleEvent(EventRecord *event)
@@ -117,7 +130,7 @@ static void HandleUpdateEvent(EventRecord *event)
     BeginUpdate(window);
     if (window == gMainWindow)
     {
-        gUIRenderer.RenderMonthView(gCalendar, window->portRect);
+        gUIRenderer->RenderMonthView(*gCalendar, window->portRect);
     }
     EndUpdate(window);
 }
