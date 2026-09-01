@@ -5,8 +5,6 @@
  * runtime behavior flags to the Process Manager.
  */
 
-#include "Types.r"
-#include "SysTypes.r"
 #include "Processes.r"
 
 resource 'SIZE' (-1) {
