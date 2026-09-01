@@ -12,6 +12,7 @@
 #include <Dialogs.h>
 #include <Events.h>
 #include <Processes.h>
+#include <cstring>
 #include "calendar.h"
 #include "ical_parser.h"
 #include "ui_renderer.h"
@@ -48,9 +49,17 @@ static WindowPtr gMainWindow = NULL;
 static Calendar *gCalendar = NULL;
 static UIRenderer *gUIRenderer = NULL;
 
+// Height, in pixels, of the toolbar strip reserved at the top of the
+// window content for the Day/Week/Month/Year buttons. Render*View draws
+// below this line so it never overlaps the buttons.
+static const short kToolbarHeight = 32;
+
 // Forward declarations
 static void SetupApplication();
 static void SetupMenuBar();
+static void SetupToolbar();
+static void SwitchToView(ViewType view);
+static Rect ContentBounds();
 static void HandleEvent(EventRecord *event);
 static void HandleMenuChoice(long menuChoice);
 static void HandleWindowEvent(EventRecord *event);
@@ -111,6 +120,47 @@ static void SetupApplication()
 
     gUIRenderer->Initialize(gMainWindow);
     gCalendar->SetCurrentView(MonthView);
+
+    SetupToolbar();
+}
+
+static void SetupToolbar()
+{
+    const short buttonWidth = 60;
+    const short buttonHeight = 20;
+    const short gap = 5;
+    const short top = 6;
+    const char *labels[] = { "Day", "Week", "Month", "Year" };
+    ViewType views[] = { DayView, WeekView, MonthView, YearView };
+
+    for (int i = 0; i < 4; i++)
+    {
+        Rect r;
+        r.top = top;
+        r.bottom = top + buttonHeight;
+        r.left = 10 + i * (buttonWidth + gap);
+        r.right = r.left + buttonWidth;
+
+        Str255 title;
+        title[0] = (unsigned char)strlen(labels[i]);
+        memcpy(&title[1], labels[i], title[0]);
+
+        NewControl(gMainWindow, &r, title, true, 0, 0, 1, pushButProc, (long)views[i]);
+    }
+}
+
+static Rect ContentBounds()
+{
+    Rect bounds = gMainWindow->portRect;
+    bounds.top += kToolbarHeight;
+    return bounds;
+}
+
+static void SwitchToView(ViewType view)
+{
+    gCalendar->SetCurrentView(view);
+    SetPort(gMainWindow);
+    InvalRect(&gMainWindow->portRect);
 }
 
 static void SetupMenuBar()
@@ -187,9 +237,7 @@ static void HandleMenuChoice(long menuChoice)
                 case kViewMonthItem: newView = MonthView; break;
                 case kViewYearItem:  newView = YearView; break;
             }
-            gCalendar->SetCurrentView(newView);
-            SetPort(gMainWindow);
-            InvalRect(&gMainWindow->portRect);
+            SwitchToView(newView);
             break;
         }
 
@@ -213,13 +261,15 @@ static void HandleUpdateEvent(EventRecord *event)
     BeginUpdate(window);
     if (window == gMainWindow)
     {
+        Rect bounds = ContentBounds();
         switch (gCalendar->GetCurrentView())
         {
-            case DayView:   gUIRenderer->RenderDayView(*gCalendar, window->portRect); break;
-            case WeekView:  gUIRenderer->RenderWeekView(*gCalendar, window->portRect); break;
-            case MonthView: gUIRenderer->RenderMonthView(*gCalendar, window->portRect); break;
-            case YearView:  gUIRenderer->RenderYearView(*gCalendar, window->portRect); break;
+            case DayView:   gUIRenderer->RenderDayView(*gCalendar, bounds); break;
+            case WeekView:  gUIRenderer->RenderWeekView(*gCalendar, bounds); break;
+            case MonthView: gUIRenderer->RenderMonthView(*gCalendar, bounds); break;
+            case YearView:  gUIRenderer->RenderYearView(*gCalendar, bounds); break;
         }
+        DrawControls(window);
     }
     EndUpdate(window);
 }
@@ -232,12 +282,17 @@ static void HandleWindowEvent(EventRecord *event)
     {
         case inContent:
         {
-            // Content area clicked
-
-            // Check if the click was on a calendar event
             Point clickPoint = event->where;
-            // Convert to local coordinates
             GlobalToLocal(&clickPoint);
+
+            ControlHandle control;
+            if (FindControl(clickPoint, window, &control) != 0)
+            {
+                if (TrackControl(control, clickPoint, NULL))
+                {
+                    SwitchToView((ViewType)GetControlReference(control));
+                }
+            }
 
             // Handle event interaction here
             break;
