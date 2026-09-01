@@ -362,11 +362,16 @@ static bool HandleMiniCalendarClick(Point clickPoint)
 {
     MiniCalGeometry g = ComputeMiniCalGeometry();
 
-    if (clickPoint.h < 10 || clickPoint.v < g.gridTop)
+    // gridTop is the *baseline* each row's digits are drawn on (MoveTo sets
+    // the baseline, not a box top), so a glyph's visible pixels sit mostly
+    // above that y-coordinate. Bias by half a row height so the hit-test
+    // buckets are centered on each baseline instead of starting at it --
+    // otherwise every click reads back as landing one row too early.
+    if (clickPoint.h < 10 || clickPoint.v < g.gridTop - g.rowHeight / 2)
         return false;
 
     int col = (clickPoint.h - 10) / g.colWidth;
-    int row = (clickPoint.v - g.gridTop) / g.rowHeight;
+    int row = (clickPoint.v - g.gridTop + g.rowHeight / 2) / g.rowHeight;
     if (col < 0 || col > 6)
         return false;
 
