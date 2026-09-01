@@ -46,9 +46,10 @@ truth for "what's left."
 - [x] Window dragging, resizing (grow box + `GrowWindow`/`SizeWindow`), draggable sidebar splitter (iTunes-2-style, clamped min/max width)
 - [x] Launches at 800x600 centered on the screen
 - [x] Preferences persistence: window size/position and sidebar width survive relaunch (`System Folder:Preferences`)
+- [x] Event creation (Month view): double-click a day opens a Dialog Manager form (title, location, category); `LClick`/`LGetSelect` on the month grid's List Manager list detect which day was double-clicked
 
 ### Next up (roughly priority order)
-- [ ] **Event creation & editing UI** -- double-click a day/slot to open a Dialog Manager form (title, start/end date, category, location, notes). Highest priority: right now the app can only display the 3 hardcoded sample events: there's no way to add your own.
+- [ ] **Event creation in Day/Week views, and editing existing events** -- the Month-view dialog only creates new events; there's no way yet to double-click an *existing* event chip to edit it, and Day/Week views have no create-event affordance at all.
 - [ ] **Event deletion** -- `Calendar::RemoveEvent` exists but nothing in the UI calls it.
 - [ ] **iCalendar (.ics) import/export wired to the UI** -- `ICALParser::ParseFile`/`ExportCalendar` exist but are never called; needs File menu items + `StandardFile` (`StandardGetFile`/`StandardPutFile`) open/save dialogs.
 - [ ] **Sidebar checkbox filtering** -- unchecking a calendar category is currently cosmetic only; it should hide that category's events from every view.
