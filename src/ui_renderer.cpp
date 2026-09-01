@@ -77,8 +77,8 @@ void UIRenderer::RenderDayView(const Calendar& calendar, const Rect& bounds)
     SetGWorld(savePort, saveDevice);
 
     // Copy offscreen to window
-    CopyBits(&((GWorldPtr)mGWorld)->portBits,
-             &((WindowPtr)mMainWindow)->portBits,
+    CopyBits(GetPortBitMapForCopyBits(mGWorld),
+             GetPortBitMapForCopyBits((CGrafPtr)mMainWindow),
              &bounds, &bounds, srcCopy, NULL);
 }
 
@@ -109,8 +109,8 @@ void UIRenderer::RenderWeekView(const Calendar& calendar, const Rect& bounds)
     SetGWorld(savePort, saveDevice);
 
     // Copy offscreen to window
-    CopyBits(&((GWorldPtr)mGWorld)->portBits,
-             &((WindowPtr)mMainWindow)->portBits,
+    CopyBits(GetPortBitMapForCopyBits(mGWorld),
+             GetPortBitMapForCopyBits((CGrafPtr)mMainWindow),
              &bounds, &bounds, srcCopy, NULL);
 }
 
@@ -141,8 +141,8 @@ void UIRenderer::RenderMonthView(const Calendar& calendar, const Rect& bounds)
     SetGWorld(savePort, saveDevice);
 
     // Copy offscreen to window
-    CopyBits(&((GWorldPtr)mGWorld)->portBits,
-             &((WindowPtr)mMainWindow)->portBits,
+    CopyBits(GetPortBitMapForCopyBits(mGWorld),
+             GetPortBitMapForCopyBits((CGrafPtr)mMainWindow),
              &bounds, &bounds, srcCopy, NULL);
 }
 
@@ -172,8 +172,8 @@ void UIRenderer::RenderYearView(const Calendar& calendar, const Rect& bounds)
     SetGWorld(savePort, saveDevice);
 
     // Copy offscreen to window
-    CopyBits(&((GWorldPtr)mGWorld)->portBits,
-             &((WindowPtr)mMainWindow)->portBits,
+    CopyBits(GetPortBitMapForCopyBits(mGWorld),
+             GetPortBitMapForCopyBits((CGrafPtr)mMainWindow),
              &bounds, &bounds, srcCopy, NULL);
 }
 
