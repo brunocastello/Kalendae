@@ -111,6 +111,12 @@ static void HandleUpdateEvent(EventRecord *event)
 {
     WindowPtr window = (WindowPtr)event->message;
 
+    // BeginUpdate/EndUpdate operate on the *current* port's update region --
+    // without SetPort first, they act on whatever port was last current
+    // (possibly none of our windows), so this window's update region never
+    // gets validated and WaitNextEvent keeps redelivering the same updateEvt
+    // forever with no idle time, starving the whole cooperative system.
+    SetPort(window);
     BeginUpdate(window);
     if (window == gMainWindow)
     {
