@@ -1,0 +1,36 @@
+# .gitignore for Kalendae - Classic Mac OS 9 Calendar Application
+
+# Build artifacts
+build/
+cmake-build-debug/
+cmake-build-release/
+*.o
+*.a
+*.dylib
+*.so
+*.app
+*.dSYM
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS-specific files
+.DS_Store
+ehthumbs.db
+
+# Generated files
+*.ics
+*.ics.backup
+Preferences/
+
+# Temporary files
+*~
+
+# Figma layout image (as requested)
+LAYOUT.jpg
+
+# macOS specific
+._*
