@@ -64,10 +64,8 @@ static void SetupApplication()
     InitCursor();
     FlushEvents(everyEvent, 0);
 
-    // Create main window. Must be a *color* window (NewCWindow, not
-    // NewWindow) since UIRenderer's CopyBits reads the window port as a
-    // CGrafPort (portPixMap) -- a plain NewWindow GrafPort has no such
-    // field at that offset, so treating it as one is a wild memory read.
+    // Create main window. NewCWindow (color) rather than NewWindow, since
+    // UIRenderer uses RGBBackColor for the Platinum background.
     Rect windowRect = { 50, 50, 500, 600 };
     gMainWindow = NewCWindow(NULL, &windowRect, "\pKalendae - Mac OS 9 Calendar",
                               true, documentProc, (WindowPtr)-1L, true, 0);
@@ -76,7 +74,6 @@ static void SetupApplication()
     SetPort(gMainWindow);
     ShowWindow(gMainWindow);
 
-    // Set up offscreen rendering for the window
     gUIRenderer.Initialize(gMainWindow);
 }
 

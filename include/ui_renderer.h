@@ -1,7 +1,14 @@
 /*
  * Kalendae - Classic Mac OS 9 Calendar Application
  *
- * UI Rendering engine interface using QuickDraw and GWorld
+ * UI Rendering engine interface using QuickDraw
+ *
+ * Draws directly into the window's own port (the caller is responsible
+ * for SetPort'ing to it first, e.g. from an updateEvt handler). There is
+ * no offscreen GWorld here: nothing animates yet, so there's no flicker
+ * to double-buffer against, and an offscreen buffer would just be a
+ * second full-window color pixmap competing for the same tiny classic
+ * Mac OS memory partition.
  */
 
 #ifndef UI_RENDERER_H
@@ -45,7 +52,6 @@ private:
 
     // Window and rendering context
     WindowPtr mMainWindow;
-    GWorldPtr mGWorld;
     bool mIsInitialized;
 };
 

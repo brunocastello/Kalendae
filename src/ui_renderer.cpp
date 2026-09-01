@@ -1,7 +1,7 @@
 /*
  * Kalendae - Classic Mac OS 9 Calendar Application
  *
- * UI Rendering engine using QuickDraw and GWorld
+ * UI Rendering engine -- draws directly into the current port.
  */
 
 #include "ui_renderer.h"
@@ -10,171 +10,76 @@
 // UI rendering implementation
 UIRenderer::UIRenderer()
 {
-    // Initialize rendering context
     mMainWindow = NULL;
-    mGWorld = NULL;
     mIsInitialized = false;
 }
 
 UIRenderer::~UIRenderer()
 {
-    // Clean up GWorld if it exists
-    if (mGWorld)
-    {
-        DisposeGWorld(mGWorld);
-    }
 }
 
 bool UIRenderer::Initialize(WindowPtr window)
 {
     mMainWindow = window;
-
-    // Create GWorld for offscreen rendering to prevent flicker
-    Rect bounds = window->portRect;
-
-    // Create GWorld with same dimensions
-    GDHandle gd = GetMainDevice();
-    OSErr err = NewGWorld(&mGWorld, 0, &bounds, nil, gd, 0);
-
-    if (err == noErr)
-    {
-        mIsInitialized = true;
-        return true;
-    }
-
-    return false;
+    mIsInitialized = (window != NULL);
+    return mIsInitialized;
 }
 
 void UIRenderer::RenderDayView(const Calendar& calendar, const Rect& bounds)
 {
-    if (!mIsInitialized || !mGWorld)
+    if (!mIsInitialized)
         return;
 
-    // Get the current view data
     Date currentDate = calendar.GetCurrentDate();
-    ViewType currentView = calendar.GetCurrentView();
 
-    // Set up offscreen graphics world for rendering
-    CGrafPtr savePort;
-    GDHandle saveDevice;
-
-    GetGWorld(&savePort, &saveDevice);
-
-    // Set GWorld for offscreen rendering
-    SetGWorld(mGWorld, nil);
-
-    // Fill with background color (Mac OS 9 Platinum theme)
     RGBColor backgroundColor = {0xCCCC, 0xCCCC, 0xCCCC};
     RGBBackColor(&backgroundColor);
     EraseRect(&bounds);
 
-    // Draw the day view elements
     DrawDayViewHeader(currentDate, bounds);
     DrawDayViewGrid(bounds);
     DrawEventsForDay(calendar, currentDate, bounds);
-
-    // Restore normal port
-    SetGWorld(savePort, saveDevice);
-
-    // Copy offscreen to window
-    CopyBits((BitMap*)*(mGWorld->portPixMap),
-             (BitMap*)*(((CGrafPtr)mMainWindow)->portPixMap),
-             &bounds, &bounds, srcCopy, NULL);
 }
 
 void UIRenderer::RenderWeekView(const Calendar& calendar, const Rect& bounds)
 {
-    if (!mIsInitialized || !mGWorld)
+    if (!mIsInitialized)
         return;
 
-    // Set up GWorld for offscreen rendering
-    CGrafPtr savePort;
-    GDHandle saveDevice;
-
-    GetGWorld(&savePort, &saveDevice);
-
-    SetGWorld(mGWorld, nil);
-
-    // Fill with background color
     RGBColor backgroundColor = {0xCCCC, 0xCCCC, 0xCCCC};
     RGBBackColor(&backgroundColor);
     EraseRect(&bounds);
 
-    // Draw week view elements
     DrawWeekViewHeader(calendar, bounds);
     DrawWeekViewGrid(bounds);
     DrawEventsForWeek(calendar, bounds);
-
-    // Restore normal port
-    SetGWorld(savePort, saveDevice);
-
-    // Copy offscreen to window
-    CopyBits((BitMap*)*(mGWorld->portPixMap),
-             (BitMap*)*(((CGrafPtr)mMainWindow)->portPixMap),
-             &bounds, &bounds, srcCopy, NULL);
 }
 
 void UIRenderer::RenderMonthView(const Calendar& calendar, const Rect& bounds)
 {
-    if (!mIsInitialized || !mGWorld)
+    if (!mIsInitialized)
         return;
 
-    // Set up GWorld for offscreen rendering
-    CGrafPtr savePort;
-    GDHandle saveDevice;
-
-    GetGWorld(&savePort, &saveDevice);
-
-    SetGWorld(mGWorld, nil);
-
-    // Fill with background color
     RGBColor backgroundColor = {0xCCCC, 0xCCCC, 0xCCCC};
     RGBBackColor(&backgroundColor);
     EraseRect(&bounds);
 
-    // Draw month view elements
     DrawMonthViewHeader(calendar, bounds);
     DrawMonthViewGrid(bounds);
     DrawEventsForMonth(calendar, bounds);
-
-    // Restore normal port
-    SetGWorld(savePort, saveDevice);
-
-    // Copy offscreen to window
-    CopyBits((BitMap*)*(mGWorld->portPixMap),
-             (BitMap*)*(((CGrafPtr)mMainWindow)->portPixMap),
-             &bounds, &bounds, srcCopy, NULL);
 }
 
 void UIRenderer::RenderYearView(const Calendar& calendar, const Rect& bounds)
 {
-    if (!mIsInitialized || !mGWorld)
+    if (!mIsInitialized)
         return;
 
-    // Set up GWorld for offscreen rendering
-    CGrafPtr savePort;
-    GDHandle saveDevice;
-
-    GetGWorld(&savePort, &saveDevice);
-
-    SetGWorld(mGWorld, nil);
-
-    // Fill with background color
     RGBColor backgroundColor = {0xCCCC, 0xCCCC, 0xCCCC};
     RGBBackColor(&backgroundColor);
     EraseRect(&bounds);
 
-    // Draw year view elements
     DrawYearViewHeader(calendar, bounds);
     DrawYearViewGrid(bounds);
-
-    // Restore normal port
-    SetGWorld(savePort, saveDevice);
-
-    // Copy offscreen to window
-    CopyBits((BitMap*)*(mGWorld->portPixMap),
-             (BitMap*)*(((CGrafPtr)mMainWindow)->portPixMap),
-             &bounds, &bounds, srcCopy, NULL);
 }
 
 void UIRenderer::DrawDayViewHeader(const Date& date, const Rect& bounds)
