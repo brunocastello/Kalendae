@@ -54,10 +54,22 @@ static UIRenderer *gUIRenderer = NULL;
 // below this line so it never overlaps the buttons.
 static const short kToolbarHeight = 32;
 
+// Width, in pixels, of the sidebar strip reserved on the left for the
+// calendar checklist. Render*View draws to the right of this line.
+static const short kSidebarWidth = 140;
+
+// FindControl/TrackControl funnel every control click through one place,
+// so refCon doubles as a tag: toolbar buttons store a ViewType (0..3),
+// sidebar checkboxes store this base plus their category index, keeping
+// the two kinds of control distinguishable without a separate registry.
+static const long kCheckboxRefConBase = 1000;
+
 // Forward declarations
 static void SetupApplication();
 static void SetupMenuBar();
 static void SetupToolbar();
+static void SetupSidebar();
+static void DrawSidebar();
 static void SwitchToView(ViewType view);
 static Rect ContentBounds();
 static void HandleEvent(EventRecord *event);
@@ -78,6 +90,10 @@ int main()
 
     // Load calendar data from preferences
     gCalendar->LoadFromPreferences();
+
+    // The sidebar checkboxes mirror the category list, so they can only
+    // be built once LoadFromPreferences has populated it.
+    SetupSidebar();
 
     // Main event loop
     EventRecord event;
@@ -153,7 +169,61 @@ static Rect ContentBounds()
 {
     Rect bounds = gMainWindow->portRect;
     bounds.top += kToolbarHeight;
+    bounds.left += kSidebarWidth;
     return bounds;
+}
+
+static void SetupSidebar()
+{
+    const short checkboxHeight = 18;
+    short top = kToolbarHeight + 28;
+    int index = 0;
+
+    const std::map<std::string, ColorRGB>& categories = gCalendar->GetCategories();
+    for (std::map<std::string, ColorRGB>::const_iterator it = categories.begin();
+         it != categories.end(); ++it)
+    {
+        Rect r;
+        r.top = top;
+        r.bottom = top + checkboxHeight;
+        r.left = 20;
+        r.right = kSidebarWidth - 10;
+
+        Str255 title;
+        size_t len = it->first.size();
+        if (len > 255) len = 255;
+        title[0] = (unsigned char)len;
+        memcpy(&title[1], it->first.c_str(), len);
+
+        NewControl(gMainWindow, &r, title, true, 1, 0, 1, checkBoxProc,
+                   kCheckboxRefConBase + index);
+
+        top += checkboxHeight + 4;
+        index++;
+    }
+}
+
+static void DrawSidebar()
+{
+    Rect sidebar = gMainWindow->portRect;
+    sidebar.top += kToolbarHeight;
+    sidebar.right = kSidebarWidth;
+
+    RGBColor backgroundColor = {0xDDDD, 0xDDDD, 0xDDDD};
+    RGBBackColor(&backgroundColor);
+    EraseRect(&sidebar);
+
+    MoveTo(sidebar.left, sidebar.top + 20);
+    LineTo(sidebar.right, sidebar.top + 20);
+
+    MoveTo(sidebar.right, sidebar.top);
+    LineTo(sidebar.right, sidebar.bottom);
+
+    TextFace(bold);
+    TextSize(11);
+    MoveTo(20, sidebar.top + 16);
+    DrawString("\pCalendars");
+    TextFace(normal);
 }
 
 static void SwitchToView(ViewType view)
@@ -261,6 +331,12 @@ static void HandleUpdateEvent(EventRecord *event)
     BeginUpdate(window);
     if (window == gMainWindow)
     {
+        RGBColor toolbarColor = {0xDDDD, 0xDDDD, 0xDDDD};
+        RGBBackColor(&toolbarColor);
+        EraseRect(&window->portRect);
+
+        DrawSidebar();
+
         Rect bounds = ContentBounds();
         switch (gCalendar->GetCurrentView())
         {
@@ -290,7 +366,15 @@ static void HandleWindowEvent(EventRecord *event)
             {
                 if (TrackControl(control, clickPoint, NULL))
                 {
-                    SwitchToView((ViewType)GetControlReference(control));
+                    long ref = GetControlReference(control);
+                    if (ref >= kCheckboxRefConBase)
+                    {
+                        SetControlValue(control, !GetControlValue(control));
+                    }
+                    else
+                    {
+                        SwitchToView((ViewType)ref);
+                    }
                 }
             }
 
