@@ -19,12 +19,21 @@
 enum
 {
     kAppleMenuID = 1,
-    kFileMenuID = 2
+    kFileMenuID = 2,
+    kViewMenuID = 3
 };
 
 enum
 {
     kFileQuitItem = 1
+};
+
+enum
+{
+    kViewDayItem = 1,
+    kViewWeekItem = 2,
+    kViewMonthItem = 3,
+    kViewYearItem = 4
 };
 
 // gCalendar/gUIRenderer are pointers, heap-allocated explicitly in main()
@@ -101,6 +110,7 @@ static void SetupApplication()
     ShowWindow(gMainWindow);
 
     gUIRenderer->Initialize(gMainWindow);
+    gCalendar->SetCurrentView(MonthView);
 }
 
 static void SetupMenuBar()
@@ -116,6 +126,11 @@ static void SetupMenuBar()
     // File menu: Quit is the one thing this app must reliably offer.
     menu = NewMenu(kFileMenuID, "\pFile");
     AppendMenu(menu, "\pQuit/Q");
+    InsertMenu(menu, 0);
+
+    // View menu: switch which calendar view is drawn.
+    menu = NewMenu(kViewMenuID, "\pView");
+    AppendMenu(menu, "\pDay/1;Week/2;Month/3;Year/4");
     InsertMenu(menu, 0);
 
     DrawMenuBar();
@@ -162,6 +177,22 @@ static void HandleMenuChoice(long menuChoice)
             }
             break;
 
+        case kViewMenuID:
+        {
+            ViewType newView = DayView;
+            switch (menuItem)
+            {
+                case kViewDayItem:   newView = DayView; break;
+                case kViewWeekItem:  newView = WeekView; break;
+                case kViewMonthItem: newView = MonthView; break;
+                case kViewYearItem:  newView = YearView; break;
+            }
+            gCalendar->SetCurrentView(newView);
+            SetPort(gMainWindow);
+            InvalRect(&gMainWindow->portRect);
+            break;
+        }
+
         default:
             break;
     }
@@ -182,7 +213,13 @@ static void HandleUpdateEvent(EventRecord *event)
     BeginUpdate(window);
     if (window == gMainWindow)
     {
-        gUIRenderer->RenderMonthView(*gCalendar, window->portRect);
+        switch (gCalendar->GetCurrentView())
+        {
+            case DayView:   gUIRenderer->RenderDayView(*gCalendar, window->portRect); break;
+            case WeekView:  gUIRenderer->RenderWeekView(*gCalendar, window->portRect); break;
+            case MonthView: gUIRenderer->RenderMonthView(*gCalendar, window->portRect); break;
+            case YearView:  gUIRenderer->RenderYearView(*gCalendar, window->portRect); break;
+        }
     }
     EndUpdate(window);
 }

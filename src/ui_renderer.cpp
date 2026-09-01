@@ -6,6 +6,28 @@
 
 #include "ui_renderer.h"
 #include "calendar.h"
+#include <cstdio>
+#include <cstring>
+
+static const char* kMonthNames[] = {
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+};
+
+static const char* kWeekdayNames[] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+
+// DrawString needs a Pascal string (length byte + bytes); everything we
+// draw is built at runtime (month names, day numbers), so convert here
+// rather than hand-writing Pascal string literals for each one.
+static void DrawCString(const char* str)
+{
+    unsigned char pstr[256];
+    size_t len = strlen(str);
+    if (len > 255) len = 255;
+    pstr[0] = (unsigned char)len;
+    memcpy(&pstr[1], str, len);
+    DrawString(pstr);
+}
 
 // UI rendering implementation
 UIRenderer::UIRenderer()
@@ -65,7 +87,7 @@ void UIRenderer::RenderMonthView(const Calendar& calendar, const Rect& bounds)
     EraseRect(&bounds);
 
     DrawMonthViewHeader(calendar, bounds);
-    DrawMonthViewGrid(bounds);
+    DrawMonthViewGrid(calendar, bounds);
     DrawEventsForMonth(calendar, bounds);
 }
 
@@ -117,12 +139,63 @@ void UIRenderer::DrawEventsForWeek(const Calendar& calendar, const Rect& bounds)
 
 void UIRenderer::DrawMonthViewHeader(const Calendar& calendar, const Rect& bounds)
 {
-    // Draw the month view header
+    Date date = calendar.GetCurrentDate();
+
+    TextSize(18);
+    TextFace(bold);
+
+    char titleBuf[64];
+    snprintf(titleBuf, sizeof(titleBuf), "%s %d", kMonthNames[date.month - 1], date.year);
+    MoveTo(bounds.left + 10, bounds.top + 24);
+    DrawCString(titleBuf);
+
+    TextFace(normal);
+    TextSize(10);
+
+    int colWidth = (bounds.right - bounds.left) / 7;
+    for (int i = 0; i < 7; i++)
+    {
+        MoveTo(bounds.left + i * colWidth + 4, bounds.top + 44);
+        DrawCString(kWeekdayNames[i]);
+    }
+
+    MoveTo(bounds.left, bounds.top + 48);
+    LineTo(bounds.right, bounds.top + 48);
 }
 
-void UIRenderer::DrawMonthViewGrid(const Rect& bounds)
+void UIRenderer::DrawMonthViewGrid(const Calendar& calendar, const Rect& bounds)
 {
-    // Draw the grid for month view
+    Date date = calendar.GetCurrentDate();
+    int firstWeekday = Date(date.year, date.month, 1).DayOfWeek();
+    int daysInMonth = Date::DaysInMonth(date.year, date.month);
+
+    int gridTop = bounds.top + 52;
+    int colWidth = (bounds.right - bounds.left) / 7;
+    int numRows = (firstWeekday + daysInMonth + 6) / 7;
+    if (numRows < 1) numRows = 1;
+    int rowHeight = (bounds.bottom - gridTop) / numRows;
+
+    TextSize(10);
+
+    for (int day = 1; day <= daysInMonth; day++)
+    {
+        int index = firstWeekday + day - 1;
+        int row = index / 7;
+        int col = index % 7;
+
+        Rect cell;
+        cell.top = gridTop + row * rowHeight;
+        cell.left = bounds.left + col * colWidth;
+        cell.bottom = cell.top + rowHeight;
+        cell.right = cell.left + colWidth;
+
+        FrameRect(&cell);
+
+        char numBuf[8];
+        snprintf(numBuf, sizeof(numBuf), "%d", day);
+        MoveTo(cell.left + 4, cell.top + 12);
+        DrawCString(numBuf);
+    }
 }
 
 void UIRenderer::DrawEventsForMonth(const Calendar& calendar, const Rect& bounds)

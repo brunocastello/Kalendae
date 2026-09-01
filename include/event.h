@@ -36,6 +36,27 @@ struct Date
     bool operator<=(const Date& other) const { return *this < other || *this == other; }
     bool operator>(const Date& other) const { return other < *this; }
     bool operator>=(const Date& other) const { return other < *this || *this == other; }
+
+    // 0 = Sunday .. 6 = Saturday (Sakamoto's algorithm)
+    int DayOfWeek() const
+    {
+        static const int t[] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
+        int y = year;
+        if (month < 3) y -= 1;
+        return ((y + y / 4 - y / 100 + y / 400 + t[month - 1] + day) % 7 + 7) % 7;
+    }
+
+    static bool IsLeapYear(int y)
+    {
+        return (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0);
+    }
+
+    static int DaysInMonth(int y, int m)
+    {
+        static const int days[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+        if (m == 2 && IsLeapYear(y)) return 29;
+        return days[m - 1];
+    }
 };
 
 class Event

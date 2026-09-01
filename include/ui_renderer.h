@@ -44,7 +44,7 @@ private:
     void DrawEventsForWeek(const Calendar& calendar, const Rect& bounds);
 
     void DrawMonthViewHeader(const Calendar& calendar, const Rect& bounds);
-    void DrawMonthViewGrid(const Rect& bounds);
+    void DrawMonthViewGrid(const Calendar& calendar, const Rect& bounds);
     void DrawEventsForMonth(const Calendar& calendar, const Rect& bounds);
 
     void DrawYearViewHeader(const Calendar& calendar, const Rect& bounds);
