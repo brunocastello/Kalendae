@@ -29,6 +29,10 @@ jobs:
         cmake .. -DCMAKE_BUILD_TYPE=Release \
                  -DCMAKE_TOOLCHAIN_FILE=/Retro68-build/toolchain/powerpc-apple-macos/cmake/retroppc.toolchain.cmake
 
+    - name: Diagnose available headers
+      run: |
+        find /Retro68-build -iname '*quickdraw*' -o -iname '*gworld*' -o -iname '*offscreen*'
+
     - name: Build application
       run: |
         cd build
