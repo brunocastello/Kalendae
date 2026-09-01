@@ -165,12 +165,16 @@ static void SetupToolbar()
     const char *labels[] = { "Day", "Week", "Month", "Year" };
     ViewType views[] = { DayView, WeekView, MonthView, YearView };
 
+    short windowWidth = gMainWindow->portRect.right - gMainWindow->portRect.left;
+    short totalWidth = 4 * buttonWidth + 3 * gap;
+    short startX = (windowWidth - totalWidth) / 2;
+
     for (int i = 0; i < 4; i++)
     {
         Rect r;
         r.top = top;
         r.bottom = top + buttonHeight;
-        r.left = 10 + i * (buttonWidth + gap);
+        r.left = startX + i * (buttonWidth + gap);
         r.right = r.left + buttonWidth;
 
         Str255 title;
@@ -228,9 +232,6 @@ static void DrawSidebar()
     RGBColor backgroundColor = {0xDDDD, 0xDDDD, 0xDDDD};
     RGBBackColor(&backgroundColor);
     EraseRect(&sidebar);
-
-    MoveTo(sidebar.left, sidebar.top + 20);
-    LineTo(sidebar.right, sidebar.top + 20);
 
     MoveTo(sidebar.right, sidebar.top);
     LineTo(sidebar.right, sidebar.bottom);
