@@ -16,6 +16,10 @@ static const char* kMonthNames[] = {
 
 static const char* kWeekdayNames[] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
 
+static const char* kFullWeekdayNames[] = {
+    "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
+};
+
 // DrawString needs a Pascal string (length byte + bytes); everything we
 // draw is built at runtime (month names, day numbers), so convert here
 // rather than hand-writing Pascal string literals for each one.
@@ -35,6 +39,7 @@ UIRenderer::UIRenderer()
     mMainWindow = NULL;
     mIsInitialized = false;
     mMonthList = NULL;
+    mDayList = NULL;
 }
 
 UIRenderer::~UIRenderer()
@@ -42,6 +47,10 @@ UIRenderer::~UIRenderer()
     if (mMonthList)
     {
         LDispose(mMonthList);
+    }
+    if (mDayList)
+    {
+        LDispose(mDayList);
     }
 }
 
@@ -64,7 +73,7 @@ void UIRenderer::RenderDayView(const Calendar& calendar, const Rect& bounds)
     EraseRect(&bounds);
 
     DrawDayViewHeader(currentDate, bounds);
-    DrawDayViewGrid(bounds);
+    DrawDayViewGrid(calendar, currentDate, bounds);
     DrawEventsForDay(calendar, currentDate, bounds);
 }
 
@@ -111,20 +120,88 @@ void UIRenderer::RenderYearView(const Calendar& calendar, const Rect& bounds)
 
 void UIRenderer::DrawDayViewHeader(const Date& date, const Rect& bounds)
 {
-    // Draw the header with date information
-    // In a real implementation, this would use Geneva font and proper Mac OS 9 UI
+    TextSize(18);
+    TextFace(bold);
+
+    char titleBuf[64];
+    snprintf(titleBuf, sizeof(titleBuf), "%s, %s %d, %d",
+             kFullWeekdayNames[date.DayOfWeek()], kMonthNames[date.month - 1], date.day, date.year);
+    MoveTo(bounds.left + 10, bounds.top + 24);
+    DrawCString(titleBuf);
+
+    MoveTo(bounds.left, bounds.top + 34);
+    LineTo(bounds.right, bounds.top + 34);
+
+    TextFace(normal);
+    TextSize(10);
 }
 
-void UIRenderer::DrawDayViewGrid(const Rect& bounds)
+void UIRenderer::DrawDayViewGrid(const Calendar& calendar, const Date& date, const Rect& bounds)
 {
-    // Draw the grid for day view - time columns and slots
+    if (mDayList)
+    {
+        LDispose(mDayList);
+        mDayList = NULL;
+    }
+
+    std::vector<Event> events = calendar.GetEventsForDate(date);
+    int rowCount = events.empty() ? 1 : (int)events.size();
+
+    Rect listRect;
+    listRect.top = bounds.top + 40;
+    listRect.left = bounds.left;
+    listRect.bottom = bounds.bottom;
+    listRect.right = bounds.right;
+
+    Point cellSize;
+    cellSize.h = (short)(listRect.right - listRect.left);
+    cellSize.v = 20;
+
+    Rect dataBounds;
+    dataBounds.top = 0;
+    dataBounds.left = 0;
+    dataBounds.bottom = (short)rowCount;
+    dataBounds.right = 1;
+
+    mDayList = LNew(&listRect, &dataBounds, cellSize, 0, mMainWindow, true, false, false, false);
 }
 
 void UIRenderer::DrawEventsForDay(const Calendar& calendar, const Date& date, const Rect& bounds)
 {
-    // Render events for a specific day
+    if (!mDayList)
+        return;
+
     std::vector<Event> events = calendar.GetEventsForDate(date);
-    // Render each event on the grid
+
+    if (events.empty())
+    {
+        char noEvents[] = "No events scheduled";
+        Cell cell;
+        cell.h = 0;
+        cell.v = 0;
+        LSetCell(noEvents, (short)strlen(noEvents), cell, mDayList);
+        return;
+    }
+
+    for (size_t i = 0; i < events.size(); i++)
+    {
+        std::string label = events[i].GetTitle();
+        if (!events[i].GetCategory().empty())
+        {
+            label += "  (" + events[i].GetCategory() + ")";
+        }
+
+        char rowBuf[64];
+        size_t len = label.size();
+        if (len > 63) len = 63;
+        memcpy(rowBuf, label.c_str(), len);
+        rowBuf[len] = '\0';
+
+        Cell cell;
+        cell.h = 0;
+        cell.v = (short)i;
+        LSetCell(rowBuf, (short)len, cell, mDayList);
+    }
 }
 
 void UIRenderer::DrawWeekViewHeader(const Calendar& calendar, const Rect& bounds)

@@ -40,7 +40,7 @@ public:
 private:
     // Helper methods for different view rendering
     void DrawDayViewHeader(const Date& date, const Rect& bounds);
-    void DrawDayViewGrid(const Rect& bounds);
+    void DrawDayViewGrid(const Calendar& calendar, const Date& date, const Rect& bounds);
     void DrawEventsForDay(const Calendar& calendar, const Date& date, const Rect& bounds);
 
     void DrawWeekViewHeader(const Calendar& calendar, const Rect& bounds);
@@ -58,10 +58,11 @@ private:
     WindowPtr mMainWindow;
     bool mIsInitialized;
 
-    // The month grid uses the real List Manager (standard Mac OS UI for
-    // any tabular display) instead of hand-drawn cells. Rebuilt on every
-    // render since the row/column count changes with the month.
+    // The month grid and day event list both use the real List Manager
+    // (standard Mac OS UI for any tabular display) instead of hand-drawn
+    // cells. Rebuilt on every render since row/column counts change.
     ListHandle mMonthList;
+    ListHandle mDayList;
 };
 
 #endif // UI_RENDERER_H
