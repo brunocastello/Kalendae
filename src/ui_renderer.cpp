@@ -119,6 +119,34 @@ bool UIRenderer::Initialize(WindowPtr window)
     return mIsInitialized;
 }
 
+bool UIRenderer::HandleMonthClick(const Calendar& calendar, Point localPt, Date* outDate)
+{
+    if (!mMonthList)
+        return false;
+
+    Boolean isDoubleClick = LClick(localPt, 0, mMonthList);
+    if (!isDoubleClick)
+        return false;
+
+    Cell cell;
+    cell.h = 0;
+    cell.v = 0;
+    if (!LGetSelect(false, &cell, mMonthList))
+        return false;
+
+    Date date = calendar.GetCurrentDate();
+    int firstWeekday = Date(date.year, date.month, 1).DayOfWeek();
+    int daysInMonth = Date::DaysInMonth(date.year, date.month);
+
+    int index = cell.v * 7 + cell.h;
+    int day = index - firstWeekday + 1;
+    if (day < 1 || day > daysInMonth)
+        return false;
+
+    *outDate = Date(date.year, date.month, day);
+    return true;
+}
+
 void UIRenderer::RenderDayView(const Calendar& calendar, const Rect& bounds)
 {
     if (!mIsInitialized)

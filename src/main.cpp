@@ -38,6 +38,21 @@ enum
     kViewYearItem = 4
 };
 
+// New/Edit Event dialog (DLOG/DITL 128 in Resources/Kalendae.r). Item
+// numbers must stay in sync with that resource's declaration order.
+enum
+{
+    kEventDialogID = 128,
+    kEventOKItem = 1,
+    kEventCancelItem = 2,
+    kEventTitleItem = 4,
+    kEventLocationItem = 6,
+    kEventCategoryWorkItem = 8,
+    kEventCategoryPersonalItem = 9,
+    kEventCategoryRetroItem = 10,
+    kEventCategoryVintageItem = 11
+};
+
 // gCalendar/gUIRenderer are pointers, heap-allocated explicitly in main()
 // rather than file-scope objects, because Retro68's classic-PowerPC crt0
 // (libretro/ppcstart.c) jumps straight from __start to main() and never
@@ -106,6 +121,7 @@ static bool GetPrefsFileSpec(FSSpec *spec);
 static void SaveWindowPrefs();
 static bool LoadWindowPrefs(Rect *outRect, short *outSidebarWidth);
 static void QuitApp();
+static bool ShowNewEventDialog(const Date& date);
 static void HandleEvent(EventRecord *event);
 static void HandleMenuChoice(long menuChoice);
 static void HandleWindowEvent(EventRecord *event);
@@ -413,6 +429,104 @@ static void QuitApp()
 {
     SaveWindowPrefs();
     ExitToShell();
+}
+
+// Modal New Event dialog. Returns true (and has already called
+// gCalendar->AddEvent) only if the user filled in a title and pressed OK.
+static bool ShowNewEventDialog(const Date& date)
+{
+    DialogPtr dlg = GetNewDialog(kEventDialogID, NULL, (WindowPtr)-1L);
+    if (!dlg)
+        return false;
+
+    short itemType;
+    Handle itemHandle;
+    Rect itemRect;
+
+    GetDialogItem(dlg, kEventTitleItem, &itemType, &itemHandle, &itemRect);
+    SetDialogItemText(itemHandle, "\p");
+
+    GetDialogItem(dlg, kEventLocationItem, &itemType, &itemHandle, &itemRect);
+    SetDialogItemText(itemHandle, "\p");
+
+    const short radioItems[4] = {
+        kEventCategoryWorkItem, kEventCategoryPersonalItem,
+        kEventCategoryRetroItem, kEventCategoryVintageItem
+    };
+    ControlHandle radios[4];
+    for (int i = 0; i < 4; i++)
+    {
+        GetDialogItem(dlg, radioItems[i], &itemType, &itemHandle, &itemRect);
+        radios[i] = (ControlHandle)itemHandle;
+    }
+    SetControlValue(radios[0], 1);
+
+    SelectDialogItemText(dlg, kEventTitleItem, 0, 32767);
+
+    bool confirmed = false;
+    for (;;)
+    {
+        short itemHit;
+        ModalDialog(NULL, &itemHit);
+
+        if (itemHit == kEventOKItem)
+        {
+            confirmed = true;
+            break;
+        }
+        if (itemHit == kEventCancelItem)
+        {
+            break;
+        }
+
+        for (int i = 0; i < 4; i++)
+        {
+            if (radioItems[i] == itemHit)
+            {
+                for (int j = 0; j < 4; j++)
+                {
+                    SetControlValue(radios[j], (i == j) ? 1 : 0);
+                }
+            }
+        }
+    }
+
+    if (confirmed)
+    {
+        Str255 titleText, locationText;
+        GetDialogItem(dlg, kEventTitleItem, &itemType, &itemHandle, &itemRect);
+        GetDialogItemText(itemHandle, titleText);
+        GetDialogItem(dlg, kEventLocationItem, &itemType, &itemHandle, &itemRect);
+        GetDialogItemText(itemHandle, locationText);
+
+        std::string title((char *)&titleText[1], titleText[0]);
+        std::string location((char *)&locationText[1], locationText[0]);
+
+        if (title.empty())
+        {
+            confirmed = false;
+        }
+        else
+        {
+            static const char *kCategoryNames[4] = { "Work", "Personal", "Retro", "Vintage" };
+            std::string category = "Work";
+            for (int i = 0; i < 4; i++)
+            {
+                if (GetControlValue(radios[i]))
+                {
+                    category = kCategoryNames[i];
+                }
+            }
+
+            Event newEvent(title, date, date);
+            newEvent.SetLocation(location);
+            newEvent.SetCategory(category);
+            gCalendar->AddEvent(newEvent);
+        }
+    }
+
+    DisposeDialog(dlg);
+    return confirmed;
 }
 
 static void SetupSidebar()
@@ -777,12 +891,23 @@ static void HandleWindowEvent(EventRecord *event)
                     }
                 }
             }
-            else
+            else if (!HandleMiniCalendarClick(clickPoint) &&
+                     gCalendar->GetCurrentView() == MonthView)
             {
-                HandleMiniCalendarClick(clickPoint);
+                // mMonthList's rect was built directly from ContentBounds(),
+                // which is already in window-local coordinates (the same
+                // space clickPoint is already in) -- no further offset needed.
+                Date clickedDate;
+                if (gUIRenderer->HandleMonthClick(*gCalendar, clickPoint, &clickedDate))
+                {
+                    if (ShowNewEventDialog(clickedDate))
+                    {
+                        SetPort(gMainWindow);
+                        InvalRect(&gMainWindow->portRect);
+                    }
+                }
             }
 
-            // Handle event interaction here
             break;
         }
 

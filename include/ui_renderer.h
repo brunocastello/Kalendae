@@ -37,6 +37,13 @@ public:
     void RenderMonthView(const Calendar& calendar, const Rect& bounds);
     void RenderYearView(const Calendar& calendar, const Rect& bounds);
 
+    // Only valid to call while Month view is the one currently rendered
+    // (mMonthList is rebuilt/disposed on every RenderMonthView call, so it
+    // may be null or stale otherwise). Returns true, and fills outDate,
+    // only when localPt was a *double*-click on a valid day cell --
+    // LClick's own double-click detection, not hand-rolled timing logic.
+    bool HandleMonthClick(const Calendar& calendar, Point localPt, Date* outDate);
+
 private:
     // Helper methods for different view rendering
     void DrawDayViewHeader(const Date& date, const Rect& bounds);
