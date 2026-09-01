@@ -57,7 +57,21 @@ static const short kToolbarHeight = 32;
 
 // Width, in pixels, of the sidebar strip reserved on the left for the
 // calendar checklist. Render*View draws to the right of this line.
-static const short kSidebarWidth = 140;
+// Adjustable at runtime via the splitter (see TrackSidebarResize);
+// clamped to [kSidebarMinWidth, kSidebarMaxWidth]. The minimum has to
+// stay wide enough for the mini-calendar's 7-column day grid to remain
+// legible -- there isn't much room to give below that.
+static short gSidebarWidth = 140;
+static const short kSidebarMinWidth = 90;
+static const short kSidebarMaxWidth = 220;
+
+// Width, in pixels, of the draggable splitter between the sidebar and
+// the main content (an iTunes-2-style divider, not a Control Manager
+// control -- it's just a hit-tested strip handled in HandleWindowEvent).
+static const short kSplitterWidth = 4;
+
+static const short kWindowMinWidth = 400;
+static const short kWindowMinHeight = 300;
 
 // FindControl/TrackControl funnel every control click through one place,
 // so refCon doubles as a tag: toolbar buttons store a ViewType (0..3),
@@ -85,6 +99,9 @@ static short MiniCalendarTop();
 static void ChangeMonth(int delta);
 static void SwitchToView(ViewType view);
 static Rect ContentBounds();
+static void RebuildControls();
+static void TrackSidebarResize();
+static void TrackWindowResize(WindowPtr window, Point startPoint);
 static void HandleEvent(EventRecord *event);
 static void HandleMenuChoice(long menuChoice);
 static void HandleWindowEvent(EventRecord *event);
@@ -142,8 +159,23 @@ static void SetupApplication()
     SetupMenuBar();
 
     // Create main window. NewCWindow (color) rather than NewWindow, since
-    // UIRenderer uses RGBBackColor for the Platinum background.
-    Rect windowRect = { 50, 50, 500, 600 };
+    // UIRenderer uses RGBBackColor for the Platinum background. 800x600,
+    // centered on the screen (menu bar excluded from the centering math
+    // so the window doesn't creep up under it).
+    const short windowWidth = 800;
+    const short windowHeight = 600;
+    const short menuBarHeight = 20;
+    Rect screenBounds = qd.screenBits.bounds;
+    short left = screenBounds.left + ((screenBounds.right - screenBounds.left) - windowWidth) / 2;
+    short top = screenBounds.top + menuBarHeight +
+        ((screenBounds.bottom - screenBounds.top - menuBarHeight) - windowHeight) / 2;
+
+    Rect windowRect;
+    windowRect.top = top;
+    windowRect.left = left;
+    windowRect.bottom = top + windowHeight;
+    windowRect.right = left + windowWidth;
+
     gMainWindow = NewCWindow(NULL, &windowRect, "\pKalendae",
                               true, documentProc, (WindowPtr)-1L, true, 0);
 
@@ -189,8 +221,84 @@ static Rect ContentBounds()
 {
     Rect bounds = gMainWindow->portRect;
     bounds.top += kToolbarHeight;
-    bounds.left += kSidebarWidth;
+    bounds.left += gSidebarWidth;
     return bounds;
+}
+
+// The toolbar buttons, sidebar checkboxes, and mini-calendar nav buttons
+// all have fixed positions computed at creation time, so both a window
+// resize (toolbar re-centers) and a sidebar-width change (everything in
+// the sidebar shifts) require tearing them down and recreating them
+// rather than trying to reposition each one individually.
+static void RebuildControls()
+{
+    KillControls(gMainWindow);
+    SetupToolbar();
+    SetupSidebar();
+    SetupMiniCalendarButtons();
+}
+
+// Classic XOR-line drag idiom (as used for e.g. Finder column resizing):
+// track the mouse with StillDown/GetMouse, drawing and erasing a single
+// vertical line via patXor rather than repainting the whole window on
+// every pixel of movement, then commit the real change once on mouse-up.
+static void TrackSidebarResize()
+{
+    SetPort(gMainWindow);
+    Rect winRect = gMainWindow->portRect;
+
+    PenMode(patXor);
+    short lastX = gSidebarWidth;
+    MoveTo(lastX, kToolbarHeight);
+    LineTo(lastX, winRect.bottom);
+
+    Point pt;
+    while (StillDown())
+    {
+        GetMouse(&pt);
+        short newX = pt.h;
+        if (newX < kSidebarMinWidth) newX = kSidebarMinWidth;
+        if (newX > kSidebarMaxWidth) newX = kSidebarMaxWidth;
+
+        if (newX != lastX)
+        {
+            MoveTo(lastX, kToolbarHeight);
+            LineTo(lastX, winRect.bottom);
+
+            lastX = newX;
+            MoveTo(lastX, kToolbarHeight);
+            LineTo(lastX, winRect.bottom);
+        }
+    }
+
+    MoveTo(lastX, kToolbarHeight);
+    LineTo(lastX, winRect.bottom);
+    PenMode(patCopy);
+
+    gSidebarWidth = lastX;
+    RebuildControls();
+    InvalRect(&winRect);
+}
+
+static void TrackWindowResize(WindowPtr window, Point startPoint)
+{
+    Rect sizeLimits;
+    sizeLimits.top = kWindowMinHeight;
+    sizeLimits.left = kWindowMinWidth;
+    sizeLimits.bottom = 32000;
+    sizeLimits.right = 32000;
+
+    long newSize = GrowWindow(window, startPoint, &sizeLimits);
+    if (newSize == 0)
+        return;
+
+    short newWidth = (short)(newSize & 0xFFFF);
+    short newHeight = (short)(newSize >> 16);
+    SizeWindow(window, newWidth, newHeight, true);
+
+    RebuildControls();
+    SetPort(window);
+    InvalRect(&window->portRect);
 }
 
 static void SetupSidebar()
@@ -207,7 +315,7 @@ static void SetupSidebar()
         r.top = top;
         r.bottom = top + checkboxHeight;
         r.left = 20;
-        r.right = kSidebarWidth - 10;
+        r.right = gSidebarWidth - 10;
 
         Str255 title;
         size_t len = it->first.size();
@@ -227,7 +335,7 @@ static void DrawSidebar()
 {
     Rect sidebar = gMainWindow->portRect;
     sidebar.top += kToolbarHeight;
-    sidebar.right = kSidebarWidth;
+    sidebar.right = gSidebarWidth;
 
     RGBColor backgroundColor = {0xDDDD, 0xDDDD, 0xDDDD};
     RGBBackColor(&backgroundColor);
@@ -265,8 +373,8 @@ static void SetupMiniCalendarButtons()
     Rect nextRect;
     nextRect.top = top;
     nextRect.bottom = top + 18;
-    nextRect.left = kSidebarWidth - 30;
-    nextRect.right = kSidebarWidth - 10;
+    nextRect.left = gSidebarWidth - 30;
+    nextRect.right = gSidebarWidth - 10;
     NewControl(gMainWindow, &nextRect, "\p>", true, 0, 0, 1, pushButProc, kNextMonthRefCon);
 }
 
@@ -313,7 +421,7 @@ static MiniCalGeometry ComputeMiniCalGeometry()
     Date date = gCalendar->GetCurrentDate();
 
     MiniCalGeometry g;
-    g.colWidth = (kSidebarWidth - 20) / 7;
+    g.colWidth = (gSidebarWidth - 20) / 7;
     g.weekdayRow = MiniCalendarTop() + 30;
     g.rowHeight = 14;
     g.gridTop = g.weekdayRow + g.rowHeight;
@@ -507,6 +615,7 @@ static void HandleUpdateEvent(EventRecord *event)
             case YearView:  gUIRenderer->RenderYearView(*gCalendar, bounds); break;
         }
         DrawControls(window);
+        DrawGrowIcon(window);
     }
     EndUpdate(window);
 }
@@ -521,6 +630,14 @@ static void HandleWindowEvent(EventRecord *event)
         {
             Point clickPoint = event->where;
             GlobalToLocal(&clickPoint);
+
+            if (clickPoint.v >= kToolbarHeight &&
+                clickPoint.h >= gSidebarWidth - kSplitterWidth / 2 &&
+                clickPoint.h <= gSidebarWidth + kSplitterWidth / 2)
+            {
+                TrackSidebarResize();
+                break;
+            }
 
             ControlHandle control;
             if (FindControl(clickPoint, window, &control) != 0)
@@ -575,6 +692,10 @@ static void HandleWindowEvent(EventRecord *event)
             {
                 ExitToShell();
             }
+            break;
+
+        case inGrow:
+            TrackWindowResize(window, event->where);
             break;
     }
 }
