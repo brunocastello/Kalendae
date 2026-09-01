@@ -52,7 +52,8 @@ private:
     void DrawEventsForMonth(const Calendar& calendar, const Rect& bounds);
 
     void DrawYearViewHeader(const Calendar& calendar, const Rect& bounds);
-    void DrawYearViewGrid(const Rect& bounds);
+    void DrawYearViewGrid(const Calendar& calendar, const Rect& bounds);
+    void DrawMiniMonth(int year, int month, const Rect& bounds);
 
     // Window and rendering context
     WindowPtr mMainWindow;

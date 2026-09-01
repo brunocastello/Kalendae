@@ -173,7 +173,7 @@ void UIRenderer::RenderYearView(const Calendar& calendar, const Rect& bounds)
     EraseRect(&bounds);
 
     DrawYearViewHeader(calendar, bounds);
-    DrawYearViewGrid(bounds);
+    DrawYearViewGrid(calendar, bounds);
 }
 
 void UIRenderer::DrawDayViewHeader(const Date& date, const Rect& bounds)
@@ -458,10 +458,74 @@ void UIRenderer::DrawEventsForMonth(const Calendar& calendar, const Rect& bounds
 
 void UIRenderer::DrawYearViewHeader(const Calendar& calendar, const Rect& bounds)
 {
-    // Draw the year view header
+    TextSize(20);
+    TextFace(bold);
+
+    char titleBuf[8];
+    snprintf(titleBuf, sizeof(titleBuf), "%d", calendar.GetCurrentDate().year);
+    MoveTo(bounds.left + 10, bounds.top + 26);
+    DrawCString(titleBuf);
+
+    TextFace(normal);
+    TextSize(10);
 }
 
-void UIRenderer::DrawYearViewGrid(const Rect& bounds)
+void UIRenderer::DrawYearViewGrid(const Calendar& calendar, const Rect& bounds)
 {
-    // Draw the grid for year view
+    int year = calendar.GetCurrentDate().year;
+
+    const int cols = 4;
+    const int rows = 3;
+    int cellWidth = (bounds.right - bounds.left) / cols;
+    int cellHeight = (bounds.bottom - bounds.top - 36) / rows;
+
+    for (int month = 1; month <= 12; month++)
+    {
+        int col = (month - 1) % cols;
+        int row = (month - 1) / cols;
+
+        Rect cellBounds;
+        cellBounds.top = bounds.top + 36 + row * cellHeight;
+        cellBounds.left = bounds.left + col * cellWidth;
+        cellBounds.bottom = cellBounds.top + cellHeight;
+        cellBounds.right = cellBounds.left + cellWidth;
+
+        DrawMiniMonth(year, month, cellBounds);
+    }
+}
+
+void UIRenderer::DrawMiniMonth(int year, int month, const Rect& bounds)
+{
+    static const char* kMiniWeekdayNames[] = { "S", "M", "T", "W", "T", "F", "S" };
+
+    TextSize(10);
+    TextFace(bold);
+    MoveTo(bounds.left + 4, bounds.top + 12);
+    DrawCString(kMonthNames[month - 1]);
+    TextFace(normal);
+    TextSize(9);
+
+    int colWidth = (bounds.right - bounds.left - 8) / 7;
+    short weekdayRow = bounds.top + 24;
+    for (int i = 0; i < 7; i++)
+    {
+        MoveTo(bounds.left + 4 + i * colWidth, weekdayRow);
+        DrawCString(kMiniWeekdayNames[i]);
+    }
+
+    int firstWeekday = Date(year, month, 1).DayOfWeek();
+    int daysInMonth = Date::DaysInMonth(year, month);
+    short rowHeight = 11;
+
+    for (int day = 1; day <= daysInMonth; day++)
+    {
+        int index = firstWeekday + day - 1;
+        int row = index / 7;
+        int col = index % 7;
+
+        char numBuf[4];
+        snprintf(numBuf, sizeof(numBuf), "%d", day);
+        MoveTo(bounds.left + 4 + col * colWidth, weekdayRow + 12 + row * rowHeight);
+        DrawCString(numBuf);
+    }
 }
