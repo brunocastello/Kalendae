@@ -34,10 +34,15 @@ UIRenderer::UIRenderer()
 {
     mMainWindow = NULL;
     mIsInitialized = false;
+    mMonthList = NULL;
 }
 
 UIRenderer::~UIRenderer()
 {
+    if (mMonthList)
+    {
+        LDispose(mMonthList);
+    }
 }
 
 bool UIRenderer::Initialize(WindowPtr window)
@@ -168,34 +173,54 @@ void UIRenderer::DrawMonthViewGrid(const Calendar& calendar, const Rect& bounds)
     Date date = calendar.GetCurrentDate();
     int firstWeekday = Date(date.year, date.month, 1).DayOfWeek();
     int daysInMonth = Date::DaysInMonth(date.year, date.month);
-
-    int gridTop = bounds.top + 52;
-    int colWidth = (bounds.right - bounds.left) / 7;
     int numRows = (firstWeekday + daysInMonth + 6) / 7;
     if (numRows < 1) numRows = 1;
-    int rowHeight = (bounds.bottom - gridTop) / numRows;
+
+    // The row/column count changes with the month, so the list is rebuilt
+    // on every render rather than resized in place.
+    if (mMonthList)
+    {
+        LDispose(mMonthList);
+        mMonthList = NULL;
+    }
+
+    Rect gridRect;
+    gridRect.top = bounds.top + 52;
+    gridRect.left = bounds.left;
+    gridRect.bottom = bounds.bottom;
+    gridRect.right = bounds.right;
+
+    Point cellSize;
+    cellSize.h = (short)((gridRect.right - gridRect.left) / 7);
+    cellSize.v = (short)((gridRect.bottom - gridRect.top) / numRows);
+
+    Rect dataBounds;
+    dataBounds.top = 0;
+    dataBounds.left = 0;
+    dataBounds.bottom = (short)numRows;
+    dataBounds.right = 7;
 
     TextSize(10);
+    TextFace(normal);
+
+    mMonthList = LNew(&gridRect, &dataBounds, cellSize, 0, mMainWindow, true, false, false, false);
+    if (!mMonthList)
+        return;
 
     for (int day = 1; day <= daysInMonth; day++)
     {
         int index = firstWeekday + day - 1;
-        int row = index / 7;
-        int col = index % 7;
 
-        Rect cell;
-        cell.top = gridTop + row * rowHeight;
-        cell.left = bounds.left + col * colWidth;
-        cell.bottom = cell.top + rowHeight;
-        cell.right = cell.left + colWidth;
-
-        FrameRect(&cell);
+        Cell cell;
+        cell.h = (short)(index % 7);
+        cell.v = (short)(index / 7);
 
         char numBuf[8];
         snprintf(numBuf, sizeof(numBuf), "%d", day);
-        MoveTo(cell.left + 4, cell.top + 12);
-        DrawCString(numBuf);
+        LSetCell(numBuf, (short)strlen(numBuf), cell, mMonthList);
     }
+
+    LUpdate(mMainWindow->visRgn, mMonthList);
 }
 
 void UIRenderer::DrawEventsForMonth(const Calendar& calendar, const Rect& bounds)

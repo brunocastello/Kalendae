@@ -16,6 +16,7 @@
 
 #include <Quickdraw.h>
 #include <Windows.h>
+#include <ListMgr.h>
 #include "calendar.h"
 
 class UIRenderer
@@ -53,6 +54,11 @@ private:
     // Window and rendering context
     WindowPtr mMainWindow;
     bool mIsInitialized;
+
+    // The month grid uses the real List Manager (standard Mac OS UI for
+    // any tabular display) instead of hand-drawn cells. Rebuilt on every
+    // render since the row/column count changes with the month.
+    ListHandle mMonthList;
 };
 
 #endif // UI_RENDERER_H

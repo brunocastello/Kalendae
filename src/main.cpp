@@ -250,6 +250,14 @@ static void HandleWindowEvent(EventRecord *event)
             break;
         }
 
+        case inDrag:
+        {
+            Rect dragBounds = qd.screenBits.bounds;
+            dragBounds.top += 20; // stay clear of the menu bar
+            DragWindow(window, event->where, &dragBounds);
+            break;
+        }
+
         case inGoAway:
             if (TrackGoAway(window, event->where))
             {
