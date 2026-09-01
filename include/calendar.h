@@ -31,34 +31,6 @@ enum ViewType
     YearView
 };
 
-// Date structure for calendar operations
-struct Date
-{
-    int year;
-    int month;
-    int day;
-
-    Date() : year(0), month(0), day(0) {}
-    Date(int y, int m, int d) : year(y), month(m), day(d) {}
-
-    // Comparison operators
-    bool operator==(const Date& other) const
-    {
-        return year == other.year && month == other.month && day == other.day;
-    }
-
-    bool operator<(const Date& other) const
-    {
-        if (year != other.year) return year < other.year;
-        if (month != other.month) return month < other.month;
-        return day < other.day;
-    }
-
-    bool operator<=(const Date& other) const { return *this < other || *this == other; }
-    bool operator>(const Date& other) const { return other < *this; }
-    bool operator>=(const Date& other) const { return other < *this || *this == other; }
-};
-
 class Calendar
 {
 public:

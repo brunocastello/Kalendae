@@ -102,6 +102,7 @@ static void HandleWindowEvent(EventRecord *event)
     switch (FindWindow(event->where, &window))
     {
         case inContent:
+        {
             // Content area clicked
 
             // Check if the click was on a calendar event
@@ -111,6 +112,7 @@ static void HandleWindowEvent(EventRecord *event)
 
             // Handle event interaction here
             break;
+        }
 
         case inMenuBar:
             // Handle menu bar clicks
