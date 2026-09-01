@@ -64,10 +64,13 @@ static void SetupApplication()
     InitCursor();
     FlushEvents(everyEvent, 0);
 
-    // Create main window
+    // Create main window. Must be a *color* window (NewCWindow, not
+    // NewWindow) since UIRenderer's CopyBits reads the window port as a
+    // CGrafPort (portPixMap) -- a plain NewWindow GrafPort has no such
+    // field at that offset, so treating it as one is a wild memory read.
     Rect windowRect = { 50, 50, 500, 600 };
-    gMainWindow = NewWindow(NULL, &windowRect, "\pKalendae - Mac OS 9 Calendar",
-                             true, documentProc, (WindowPtr)-1L, true, 0);
+    gMainWindow = NewCWindow(NULL, &windowRect, "\pKalendae - Mac OS 9 Calendar",
+                              true, documentProc, (WindowPtr)-1L, true, 0);
 
     // Show window
     SetPort(gMainWindow);
