@@ -102,6 +102,10 @@ static Rect ContentBounds();
 static void RebuildControls();
 static void TrackSidebarResize();
 static void TrackWindowResize(WindowPtr window, Point startPoint);
+static bool GetPrefsFileSpec(FSSpec *spec);
+static void SaveWindowPrefs();
+static bool LoadWindowPrefs(Rect *outRect, short *outSidebarWidth);
+static void QuitApp();
 static void HandleEvent(EventRecord *event);
 static void HandleMenuChoice(long menuChoice);
 static void HandleWindowEvent(EventRecord *event);
@@ -159,9 +163,10 @@ static void SetupApplication()
     SetupMenuBar();
 
     // Create main window. NewCWindow (color) rather than NewWindow, since
-    // UIRenderer uses RGBBackColor for the Platinum background. 800x600,
-    // centered on the screen (menu bar excluded from the centering math
-    // so the window doesn't creep up under it).
+    // UIRenderer uses RGBBackColor for the Platinum background. Default is
+    // 800x600, centered on the screen (menu bar excluded from the
+    // centering math so the window doesn't creep up under it) -- unless a
+    // saved size/position from a previous run is available.
     const short windowWidth = 800;
     const short windowHeight = 600;
     const short menuBarHeight = 20;
@@ -175,6 +180,8 @@ static void SetupApplication()
     windowRect.left = left;
     windowRect.bottom = top + windowHeight;
     windowRect.right = left + windowWidth;
+
+    LoadWindowPrefs(&windowRect, &gSidebarWidth);
 
     gMainWindow = NewCWindow(NULL, &windowRect, "\pKalendae",
                               true, documentProc, (WindowPtr)-1L, true, 0);
@@ -278,6 +285,8 @@ static void TrackSidebarResize()
     gSidebarWidth = lastX;
     RebuildControls();
     InvalRect(&winRect);
+
+    SaveWindowPrefs();
 }
 
 static void TrackWindowResize(WindowPtr window, Point startPoint)
@@ -299,6 +308,111 @@ static void TrackWindowResize(WindowPtr window, Point startPoint)
     RebuildControls();
     SetPort(window);
     InvalRect(&window->portRect);
+
+    SaveWindowPrefs();
+}
+
+// Real classic document windows have a ~19px title bar above portRect's
+// local (0,0); saving/restoring the *structure* rect (what NewCWindow
+// takes) needs that added back in, since portRect only ever exposes the
+// content area.
+static const short kTitleBarHeight = 19;
+
+struct WindowPrefsData
+{
+    short left, top, width, height;
+    short sidebarWidth;
+};
+
+// Fills in an FSSpec for "Kalendae Preferences" inside the Preferences
+// folder. Per Inside Macintosh, FSMakeFSSpec fills the spec in and
+// returns fnfErr when the file doesn't exist yet -- that's expected the
+// first time this app runs and is not a failure the caller needs to
+// check for.
+static bool GetPrefsFileSpec(FSSpec *spec)
+{
+    short vRefNum;
+    long dirID;
+    if (FindFolder(-1, kPreferencesFolderType, true, &vRefNum, &dirID) != noErr)
+        return false;
+
+    FSMakeFSSpec(vRefNum, dirID, "\pKalendae Preferences", spec);
+    return true;
+}
+
+static void SaveWindowPrefs()
+{
+    FSSpec spec;
+    if (!GetPrefsFileSpec(&spec))
+        return;
+
+    FSpCreate(&spec, 'KALE', 'pref', smSystemScript); // dupFNErr if it already exists is fine
+
+    short refNum;
+    if (FSpOpenDF(&spec, fsWrPerm, &refNum) != noErr)
+        return;
+
+    SetPort(gMainWindow);
+    Point contentTopLeft;
+    contentTopLeft.h = 0;
+    contentTopLeft.v = 0;
+    LocalToGlobal(&contentTopLeft);
+
+    WindowPrefsData prefs;
+    prefs.left = contentTopLeft.h;
+    prefs.top = contentTopLeft.v - kTitleBarHeight;
+    prefs.width = gMainWindow->portRect.right - gMainWindow->portRect.left;
+    prefs.height = gMainWindow->portRect.bottom - gMainWindow->portRect.top;
+    prefs.sidebarWidth = gSidebarWidth;
+
+    long count = sizeof(prefs);
+    SetFPos(refNum, fsFromStart, 0);
+    FSWrite(refNum, &count, &prefs);
+    SetEOF(refNum, count);
+    FSClose(refNum);
+}
+
+static bool LoadWindowPrefs(Rect *outRect, short *outSidebarWidth)
+{
+    FSSpec spec;
+    if (!GetPrefsFileSpec(&spec))
+        return false;
+
+    short refNum;
+    if (FSpOpenDF(&spec, fsRdPerm, &refNum) != noErr)
+        return false;
+
+    WindowPrefsData prefs;
+    long count = sizeof(prefs);
+    OSErr err = FSRead(refNum, &count, &prefs);
+    FSClose(refNum);
+
+    if (err != noErr || count != sizeof(prefs))
+        return false;
+
+    if (prefs.width < kWindowMinWidth || prefs.height < kWindowMinHeight)
+        return false;
+
+    outRect->left = prefs.left;
+    outRect->top = prefs.top;
+    outRect->right = (short)(prefs.left + prefs.width);
+    outRect->bottom = (short)(prefs.top + prefs.height);
+
+    if (prefs.sidebarWidth >= kSidebarMinWidth && prefs.sidebarWidth <= kSidebarMaxWidth)
+    {
+        *outSidebarWidth = prefs.sidebarWidth;
+    }
+
+    return true;
+}
+
+// Single path to quit through, so every trigger (File > Quit, Cmd-Q, the
+// close box) saves window prefs first rather than relying on each call
+// site to remember to.
+static void QuitApp()
+{
+    SaveWindowPrefs();
+    ExitToShell();
 }
 
 static void SetupSidebar()
@@ -561,7 +675,7 @@ static void HandleMenuChoice(long menuChoice)
         case kFileMenuID:
             if (menuItem == kFileQuitItem)
             {
-                ExitToShell();
+                QuitApp();
             }
             break;
 
@@ -684,13 +798,14 @@ static void HandleWindowEvent(EventRecord *event)
             Rect dragBounds = qd.screenBits.bounds;
             dragBounds.top += 20; // stay clear of the menu bar
             DragWindow(window, event->where, &dragBounds);
+            SaveWindowPrefs();
             break;
         }
 
         case inGoAway:
             if (TrackGoAway(window, event->where))
             {
-                ExitToShell();
+                QuitApp();
             }
             break;
 
