@@ -8,7 +8,6 @@
 #define UI_RENDERER_H
 
 #include <Quickdraw.h>
-#include <CQuickDraw.h>
 #include <Windows.h>
 #include "calendar.h"
 
