@@ -11,7 +11,7 @@
 #include "ui_renderer.h"
 
 // Calendar implementation
-Calendar::Calendar() : mCurrentView(DayView), mCurrentDate(GetCurrentDate())
+Calendar::Calendar() : mCurrentView(DayView), mCurrentDate(2026, 8, 31)
 {
     // Initialize calendar with default settings
     mCategories["Work"] = ColorRGB(255, 0, 0);     // Red
@@ -102,8 +102,7 @@ void Calendar::SetCurrentDate(const Date& date)
 
 Date Calendar::GetCurrentDate() const
 {
-    // In a real implementation, this would get the current system date
-    return Date(2026, 8, 31); // Default to current date for demo
+    return mCurrentDate;
 }
 
 void Calendar::ProcessBackgroundTasks()

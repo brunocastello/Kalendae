@@ -12,6 +12,7 @@
 #include <Dialogs.h>
 #include <Events.h>
 #include <Processes.h>
+#include <cstdio>
 #include <cstring>
 #include "calendar.h"
 #include "ical_parser.h"
@@ -63,6 +64,13 @@ static const short kSidebarWidth = 140;
 // sidebar checkboxes store this base plus their category index, keeping
 // the two kinds of control distinguishable without a separate registry.
 static const long kCheckboxRefConBase = 1000;
+static const long kPrevMonthRefCon = 2000;
+static const long kNextMonthRefCon = 2001;
+
+static const char* kMonthNames[] = {
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+};
 
 // Forward declarations
 static void SetupApplication();
@@ -70,6 +78,10 @@ static void SetupMenuBar();
 static void SetupToolbar();
 static void SetupSidebar();
 static void DrawSidebar();
+static void SetupMiniCalendarButtons();
+static void DrawMiniCalendar();
+static short MiniCalendarTop();
+static void ChangeMonth(int delta);
 static void SwitchToView(ViewType view);
 static Rect ContentBounds();
 static void HandleEvent(EventRecord *event);
@@ -92,8 +104,11 @@ int main()
     gCalendar->LoadFromPreferences();
 
     // The sidebar checkboxes mirror the category list, so they can only
-    // be built once LoadFromPreferences has populated it.
+    // be built once LoadFromPreferences has populated it. The mini
+    // calendar's nav buttons are positioned below that list, so they have
+    // the same ordering requirement.
     SetupSidebar();
+    SetupMiniCalendarButtons();
 
     // Main event loop
     EventRecord event;
@@ -128,7 +143,7 @@ static void SetupApplication()
     // Create main window. NewCWindow (color) rather than NewWindow, since
     // UIRenderer uses RGBBackColor for the Platinum background.
     Rect windowRect = { 50, 50, 500, 600 };
-    gMainWindow = NewCWindow(NULL, &windowRect, "\pKalendae - Mac OS 9 Calendar",
+    gMainWindow = NewCWindow(NULL, &windowRect, "\pKalendae",
                               true, documentProc, (WindowPtr)-1L, true, 0);
 
     SetPort(gMainWindow);
@@ -224,6 +239,99 @@ static void DrawSidebar()
     MoveTo(20, sidebar.top + 16);
     DrawString("\pCalendars");
     TextFace(normal);
+}
+
+static short MiniCalendarTop()
+{
+    const short checkboxHeight = 18;
+    short listBottom = kToolbarHeight + 28 +
+        (short)(gCalendar->GetCategories().size() * (checkboxHeight + 4));
+    return listBottom + 20;
+}
+
+static void SetupMiniCalendarButtons()
+{
+    short top = MiniCalendarTop();
+
+    Rect prevRect;
+    prevRect.top = top;
+    prevRect.bottom = top + 18;
+    prevRect.left = 15;
+    prevRect.right = 35;
+    NewControl(gMainWindow, &prevRect, "\p<", true, 0, 0, 1, pushButProc, kPrevMonthRefCon);
+
+    Rect nextRect;
+    nextRect.top = top;
+    nextRect.bottom = top + 18;
+    nextRect.left = kSidebarWidth - 30;
+    nextRect.right = kSidebarWidth - 10;
+    NewControl(gMainWindow, &nextRect, "\p>", true, 0, 0, 1, pushButProc, kNextMonthRefCon);
+}
+
+static void ChangeMonth(int delta)
+{
+    Date d = gCalendar->GetCurrentDate();
+    int month = d.month + delta;
+    int year = d.year;
+    while (month > 12) { month -= 12; year++; }
+    while (month < 1) { month += 12; year--; }
+
+    int maxDay = Date::DaysInMonth(year, month);
+    int day = d.day > maxDay ? maxDay : d.day;
+
+    gCalendar->SetCurrentDate(Date(year, month, day));
+    SetPort(gMainWindow);
+    InvalRect(&gMainWindow->portRect);
+}
+
+static void DrawCString(const char *str)
+{
+    unsigned char pstr[256];
+    size_t len = strlen(str);
+    if (len > 255) len = 255;
+    pstr[0] = (unsigned char)len;
+    memcpy(&pstr[1], str, len);
+    DrawString(pstr);
+}
+
+static void DrawMiniCalendar()
+{
+    static const char *kMiniWeekdayNames[] = { "S", "M", "T", "W", "T", "F", "S" };
+
+    Date date = gCalendar->GetCurrentDate();
+    short top = MiniCalendarTop();
+    short colWidth = (kSidebarWidth - 20) / 7;
+
+    TextSize(10);
+    TextFace(normal);
+
+    char titleBuf[32];
+    snprintf(titleBuf, sizeof(titleBuf), "%s %d", kMonthNames[date.month - 1], date.year);
+    MoveTo(40, top + 12);
+    DrawCString(titleBuf);
+
+    short weekdayRow = top + 30;
+    for (int i = 0; i < 7; i++)
+    {
+        MoveTo(10 + i * colWidth, weekdayRow);
+        DrawCString(kMiniWeekdayNames[i]);
+    }
+
+    int firstWeekday = Date(date.year, date.month, 1).DayOfWeek();
+    int daysInMonth = Date::DaysInMonth(date.year, date.month);
+    short rowHeight = 14;
+
+    for (int day = 1; day <= daysInMonth; day++)
+    {
+        int index = firstWeekday + day - 1;
+        int row = index / 7;
+        int col = index % 7;
+
+        char numBuf[4];
+        snprintf(numBuf, sizeof(numBuf), "%d", day);
+        MoveTo(10 + col * colWidth, weekdayRow + 14 + row * rowHeight);
+        DrawCString(numBuf);
+    }
 }
 
 static void SwitchToView(ViewType view)
@@ -336,6 +444,7 @@ static void HandleUpdateEvent(EventRecord *event)
         EraseRect(&window->portRect);
 
         DrawSidebar();
+        DrawMiniCalendar();
 
         Rect bounds = ContentBounds();
         switch (gCalendar->GetCurrentView())
@@ -367,7 +476,15 @@ static void HandleWindowEvent(EventRecord *event)
                 if (TrackControl(control, clickPoint, NULL))
                 {
                     long ref = GetControlReference(control);
-                    if (ref >= kCheckboxRefConBase)
+                    if (ref == kPrevMonthRefCon)
+                    {
+                        ChangeMonth(-1);
+                    }
+                    else if (ref == kNextMonthRefCon)
+                    {
+                        ChangeMonth(1);
+                    }
+                    else if (ref >= kCheckboxRefConBase)
                     {
                         SetControlValue(control, !GetControlValue(control));
                     }
