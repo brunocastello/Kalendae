@@ -128,10 +128,14 @@ bool UIRenderer::HandleMonthClick(const Calendar& calendar, Point localPt, Date*
     if (!isDoubleClick)
         return false;
 
+    // next=true searches forward from theCell (exclusive), so starting one
+    // cell before the grid's first cell finds whichever cell is actually
+    // selected -- next=false would only ever tell us whether {0,0} itself
+    // is selected, which is almost never the cell that was clicked.
     Cell cell;
     cell.h = 0;
-    cell.v = 0;
-    if (!LGetSelect(false, &cell, mMonthList))
+    cell.v = -1;
+    if (!LGetSelect(true, &cell, mMonthList))
         return false;
 
     Date date = calendar.GetCurrentDate();
