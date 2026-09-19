@@ -1,5 +1,12 @@
 # Kalendae - Classic Mac OS 9 Calendar Application
 
+> [!CAUTION]
+> ### 🤖 AI-Generated Code Ahead
+> **This entire repository was crafted with the help of AI.**
+>
+> If you are allergic to neural networks, synthesized functions, or autocomplete on steroids, **this repository is not for you**.
+> You are kindly invited to close this page and write your code line-by-line in `ed` or `vim`. Everyone else, enjoy!
+
 A native Mac OS 9 Calendar application designed for PowerPC hardware that mimics the modern multi-view interface of Apple Calendar while strictly adhering to the Mac OS 9 Platinum Theme.
 
 ## Overview
