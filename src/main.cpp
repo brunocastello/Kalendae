@@ -31,15 +31,22 @@ enum
     kFileMenuID = 2,
     kViewMenuID = 3,
     kEditMenuID = 4,
-    kEventMenuID = 5
+    kEventMenuID = 5,
+    kExportMenuID = 6       // hierarchical submenu of File > Export
 };
 
 enum
 {
     kFileNewEventItem = 1,
     kFileImportItem = 3,
-    kFileExportItem = 4,
+    kFileExportItem = 4,    // parent of the Export submenu
     kFileQuitItem = 6
+};
+
+enum
+{
+    kExportSelectedItem = 1,
+    kExportAllItem = 2
 };
 
 enum
@@ -68,7 +75,10 @@ enum
     kViewDayItem = 1,
     kViewWeekItem = 2,
     kViewMonthItem = 3,
-    kViewYearItem = 4
+    kViewYearItem = 4,
+    kViewTodayItem = 6,
+    kViewPreviousItem = 7,
+    kViewNextItem = 8
 };
 
 // gCalendar/gUIRenderer are pointers, heap-allocated explicitly in main()
@@ -84,6 +94,7 @@ static Calendar *gCalendar = NULL;
 static UIRenderer *gUIRenderer = NULL;
 static MenuHandle gEventMenu = NULL;
 static MenuHandle gEditMenu = NULL;
+static MenuHandle gExportMenu = NULL;
 
 // Height, in pixels, of the toolbar strip reserved at the top of the
 // window content for the Day/Week/Month/Year buttons. Render*View draws
@@ -115,7 +126,21 @@ static const short kWindowMinHeight = 300;
 static const long kCheckboxRefConBase = 1000;
 static const long kPrevMonthRefCon = 2000;
 static const long kNextMonthRefCon = 2001;
+static const long kPrevPeriodRefCon = 2010;
+static const long kTodayRefCon = 2011;
+static const long kNextPeriodRefCon = 2012;
+static const long kNewEventRefCon = 2020;
+static const long kSearchRefCon = 2021;
 static const long kTimeGridScrollRefCon = 3000;
+
+// The calendar chosen by clicking its name or swatch in the sidebar (empty
+// until first needed; SelectedCalendarName validates it). It receives new
+// events and is what File > Export writes. Fixed buffer: no static ctors.
+static char gSelectedCalendar[64] = "";
+
+// The month shown in the sidebar mini-calendar; moved by its own arrows and
+// whenever the main date changes. 0 until first needed.
+static short gMiniYear = 0, gMiniMonth = 0;
 
 // The Day/Week hour-grid scroll bar. Recreated by SetupTimeGridScrollBar
 // whenever RebuildControls tears the window's controls down.
@@ -152,7 +177,12 @@ static void SetupMiniCalendarButtons();
 static void DrawMiniCalendar();
 static bool HandleMiniCalendarClick(Point clickPoint);
 static short MiniCalendarTop();
-static void ChangeMonth(int delta);
+static void ChangeMiniMonth(int delta);
+static void GoToDate(const Date& date);
+static void StepPeriod(int direction);
+static void SetupTitleNavButtons();
+static void UpdateToolbarHilite();
+static std::string SelectedCalendarName();
 static void SwitchToView(ViewType view);
 static Rect ContentBounds();
 static void RebuildControls();
@@ -184,7 +214,7 @@ static void CreateEventWithInspector(Event& e, const Rect& anchorLocal);
 static void NewEventFromHit(const HitRegion& hit);
 static void NewEventAtNextHour();
 static void ImportEvents();
-static void ExportEvents();
+static void ExportEvents(bool all);
 static void EditSelectedEvent();
 static void HandleEvent(EventRecord *event);
 static void HandleMenuChoice(long menuChoice);
@@ -218,7 +248,10 @@ int main()
     // the same ordering requirement.
     SetupSidebar();
     SetupMiniCalendarButtons();
+    SetupTitleNavButtons();
     SetupTimeGridScrollBar();
+    gMiniYear = (short)gCalendar->GetCurrentDate().year;
+    gMiniMonth = (short)gCalendar->GetCurrentDate().month;
 
     // A Day/Week view restored from the prefs needs its grid scrolled into place
     ViewType startView = gCalendar->GetCurrentView();
@@ -297,6 +330,24 @@ static void SetupApplication()
     SetupToolbar();
 }
 
+static ControlHandle MakeButton(short left, short top, short width, short height,
+                                const char *label, long refCon)
+{
+    Rect r;
+    r.top = top;
+    r.bottom = top + height;
+    r.left = left;
+    r.right = left + width;
+
+    Str255 title;
+    title[0] = (unsigned char)strlen(label);
+    memcpy(&title[1], label, title[0]);
+
+    return NewControl(gMainWindow, &r, title, true, 0, 0, 1, pushButProc, refCon);
+}
+
+// Toolbar: [+] on the left, the view buttons centred, a (for now inactive)
+// search button on the right.
 static void SetupToolbar()
 {
     const short buttonWidth = 60;
@@ -310,20 +361,54 @@ static void SetupToolbar()
     short totalWidth = 4 * buttonWidth + 3 * gap;
     short startX = (windowWidth - totalWidth) / 2;
 
+    MakeButton(10, top, 24, buttonHeight, "+", kNewEventRefCon);
+
     for (int i = 0; i < 4; i++)
+        MakeButton(startX + i * (buttonWidth + gap), top, buttonWidth, buttonHeight,
+                   labels[i], (long)views[i]);
+
+    ControlHandle search = MakeButton(windowWidth - 10 - 64, top, 64, buttonHeight,
+                                      "Search", kSearchRefCon);
+    if (search)
+        HiliteControl(search, 255);     // placeholder until search exists
+
+    UpdateToolbarHilite();
+}
+
+// The active view's button is drawn pressed (hilite inButton). TrackControl
+// resets the hilite to 0 when the mouse is released, so this is re-applied
+// after every control click as well as after rebuilds and view switches.
+static void UpdateToolbarHilite()
+{
+    if (!gMainWindow)
+        return;
+    short active = (short)gCalendar->GetCurrentView();
+    ControlHandle c = ((WindowPeek)gMainWindow)->controlList;
+    while (c)
     {
-        Rect r;
-        r.top = top;
-        r.bottom = top + buttonHeight;
-        r.left = startX + i * (buttonWidth + gap);
-        r.right = r.left + buttonWidth;
-
-        Str255 title;
-        title[0] = (unsigned char)strlen(labels[i]);
-        memcpy(&title[1], labels[i], title[0]);
-
-        NewControl(gMainWindow, &r, title, true, 0, 0, 1, pushButProc, (long)views[i]);
+        long ref = GetControlReference(c);
+        if (ref >= 0 && ref <= 3)
+        {
+            short want = (ref == active) ? inButton : 0;
+            if ((**c).contrlHilite != want)
+                HiliteControl(c, want);
+        }
+        c = (*c)->nextControl;
     }
+}
+
+// [<] [Today] [>] at the right end of the content title row, vertically
+// centred in the renderer's title-row rect.
+static void SetupTitleNavButtons()
+{
+    Rect row = gUIRenderer->GetTitleRowRect(ContentBounds());
+    const short height = 20;
+    short top = row.top + (short)((row.bottom - row.top - height) / 2);
+    short right = row.right - 10;
+
+    MakeButton(right - 22, top, 22, height, ">", kNextPeriodRefCon);
+    MakeButton(right - 22 - 4 - 52, top, 52, height, "Today", kTodayRefCon);
+    MakeButton(right - 22 - 4 - 52 - 4 - 22, top, 22, height, "<", kPrevPeriodRefCon);
 }
 
 static Rect ContentBounds()
@@ -343,6 +428,7 @@ static void RebuildControls()
 {
     KillControls(gMainWindow);
     SetupToolbar();
+    SetupTitleNavButtons();
     SetupSidebar();
     SetupMiniCalendarButtons();
     SetupTimeGridScrollBar();
@@ -418,12 +504,32 @@ static void ScrollTimeGridTo(short value)
 }
 
 // Arrow/page tracking: runs repeatedly while the mouse is held down.
-static pascal void TimeGridScrollAction(ControlHandle control, short part)
+static short TimeGridPageStep()
 {
     Rect viewRect = gUIRenderer->GetTimeGridViewRect(ContentBounds());
     short pageStep = (short)(viewRect.bottom - viewRect.top - UIRenderer::kHourHeight);
     if (pageStep < UIRenderer::kHourHeight)
         pageStep = UIRenderer::kHourHeight;
+    return pageStep;
+}
+
+// Moves the scroll bar (and the grid) by step pixels, clamped to its range.
+static void ScrollTimeGridBy(ControlHandle control, short step)
+{
+    short oldValue = GetControlValue(control);
+    long newValue = (long)oldValue + step;
+    if (newValue < GetControlMinimum(control)) newValue = GetControlMinimum(control);
+    if (newValue > GetControlMaximum(control)) newValue = GetControlMaximum(control);
+    if (newValue == oldValue)
+        return;
+
+    SetControlValue(control, (short)newValue);
+    ScrollTimeGridTo((short)newValue);
+}
+
+static pascal void TimeGridScrollAction(ControlHandle control, short part)
+{
+    short pageStep = TimeGridPageStep();
 
     short step = 0;
     switch (part)
@@ -435,15 +541,7 @@ static pascal void TimeGridScrollAction(ControlHandle control, short part)
         default: return;
     }
 
-    short oldValue = GetControlValue(control);
-    long newValue = (long)oldValue + step;
-    if (newValue < GetControlMinimum(control)) newValue = GetControlMinimum(control);
-    if (newValue > GetControlMaximum(control)) newValue = GetControlMaximum(control);
-    if (newValue == oldValue)
-        return;
-
-    SetControlValue(control, (short)newValue);
-    ScrollTimeGridTo((short)newValue);
+    ScrollTimeGridBy(control, step);
 }
 
 static void HandleTimeGridScrollClick(ControlHandle control, short part, Point clickPoint)
@@ -522,6 +620,8 @@ static void HandleContentClick(EventRecord *event, Point clickPoint)
     {
         // Year days jump to Day view on that date.
         gCalendar->SetCurrentDate(hit.date);
+        gMiniYear = (short)hit.date.year;
+        gMiniMonth = (short)hit.date.month;
         SwitchToView(DayView);
     }
     else if (hit.eventID != 0)
@@ -1293,11 +1393,11 @@ static void CreateEventWithInspector(Event& e, const Rect& anchorLocal)
     }
 }
 
-static void SetFirstCategory(Event& e)
+static void SetSelectedCategory(Event& e)
 {
-    const std::map<std::string, ColorRGB>& cats = gCalendar->GetCategories();
-    if (!cats.empty())
-        e.SetCategory(cats.begin()->first);
+    std::string name = SelectedCalendarName();
+    if (!name.empty())
+        e.SetCategory(name);
 }
 
 // Double-click on an empty slot. Month slots and the Day/Week all-day strip
@@ -1305,7 +1405,7 @@ static void SetFirstCategory(Event& e)
 static void NewEventFromHit(const HitRegion& hit)
 {
     Event e("New Event", hit.date, hit.date);
-    SetFirstCategory(e);
+    SetSelectedCategory(e);
     if (hit.minute < 0)
     {
         e.SetAllDay(true);
@@ -1364,7 +1464,7 @@ static void NewEventAtNextHour()
 
     Date date = gCalendar->GetCurrentDate();
     Event e("New Event", date, date);
-    SetFirstCategory(e);
+    SetSelectedCategory(e);
     e.SetStartMinute(start);
     e.SetEndMinute((short)(start + 60));
 
@@ -1428,8 +1528,34 @@ static bool CategoryAtIndex(int index, std::string& name, ColorRGB& color)
     return false;
 }
 
+// The selected calendar's name; falls back to the first calendar when the
+// stored one is unset or gone, and updates the stored copy.
+static std::string SelectedCalendarName()
+{
+    const std::map<std::string, ColorRGB>& categories = gCalendar->GetCategories();
+    if (categories.empty())
+        return std::string();
+    if (gSelectedCalendar[0] != '\0' && categories.find(gSelectedCalendar) != categories.end())
+        return std::string(gSelectedCalendar);
+
+    strncpy(gSelectedCalendar, categories.begin()->first.c_str(), sizeof(gSelectedCalendar) - 1);
+    gSelectedCalendar[sizeof(gSelectedCalendar) - 1] = '\0';
+    return std::string(gSelectedCalendar);
+}
+
+static Rect SidebarRowsRect()
+{
+    Rect r;
+    r.top = kSidebarListTop;
+    r.bottom = SidebarRowTop((int)gCalendar->GetCategories().size());
+    r.left = 0;
+    r.right = gSidebarWidth;
+    return r;
+}
+
 static void SetupSidebar()
 {
+    SelectedCalendarName();     // settle the selection against the current list
     int index = 0;
 
     const std::map<std::string, ColorRGB>& categories = gCalendar->GetCategories();
@@ -1492,7 +1618,10 @@ static void SetCategoryVisibleByIndex(int index, bool visible)
     RefreshAfterEdit();
 }
 
-// Click on a row's swatch or name toggles the calendar like its checkbox.
+static void UpdateExportMenuItem();
+
+// Click on a row's swatch or name selects the calendar (on mouse-down, as
+// Apple does); only the checkbox toggles visibility.
 static bool HandleSidebarRowClick(Point clickPoint)
 {
     if (clickPoint.h < kSidebarCheckLeft || clickPoint.h >= gSidebarWidth - kSplitterWidth)
@@ -1509,18 +1638,15 @@ static bool HandleSidebarRowClick(Point clickPoint)
             if (!CategoryAtIndex(i, name, color))
                 return false;
 
-            // Toggle on mouse-up, only if still inside the row.
-            Rect row;
-            row.top = top;
-            row.bottom = top + kSidebarRowHeight;
-            row.left = kSidebarCheckLeft;
-            row.right = gSidebarWidth - kSplitterWidth;
-            Point m = clickPoint;
-            while (StillDown())
-                GetMouse(&m);
-            GetMouse(&m);
-            if (PtInRect(m, &row))
-                SetCategoryVisibleByIndex(i, !gCalendar->IsCategoryVisible(name));
+            if (name != SelectedCalendarName())
+            {
+                strncpy(gSelectedCalendar, name.c_str(), sizeof(gSelectedCalendar) - 1);
+                gSelectedCalendar[sizeof(gSelectedCalendar) - 1] = '\0';
+                UpdateExportMenuItem();
+                SetPort(gMainWindow);
+                Rect rows = SidebarRowsRect();
+                InvalRect(&rows);
+            }
             return true;
         }
     }
@@ -1553,11 +1679,28 @@ static void DrawSidebar()
     TextSize(11);
 
     int index = 0;
+    std::string selected = SelectedCalendarName();
     const std::map<std::string, ColorRGB>& categories = gCalendar->GetCategories();
     for (std::map<std::string, ColorRGB>::const_iterator it = categories.begin();
          it != categories.end(); ++it, ++index)
     {
         short rowTop = SidebarRowTop(index);
+
+        if (it->first == selected)
+        {
+            // Highlight band behind swatch and name. Multiversal's LowMem
+            // accessors for the system highlight colour aren't relied on, so
+            // use Platinum's light lavender.
+            Rect band;
+            band.top = rowTop;
+            band.bottom = rowTop + kSidebarRowHeight;
+            band.left = kSidebarCheckLeft + kSidebarCheckSize;
+            band.right = gSidebarWidth - 6;
+            RGBColor hilite = {0xCCCC, 0xCCCC, 0xFFFF};
+            RGBForeColor(&hilite);
+            PaintRect(&band);
+            RGBForeColor(&black);
+        }
 
         Rect sw;
         sw.top = rowTop + (kSidebarRowHeight - kSidebarSwatchSize) / 2;
@@ -1615,21 +1758,89 @@ static void SetupMiniCalendarButtons()
     NewControl(gMainWindow, &nextRect, "\p>", true, 0, 0, 1, pushButProc, kNextMonthRefCon);
 }
 
-static void ChangeMonth(int delta)
+static Rect MiniCalendarRect()
 {
-    Date d = gCalendar->GetCurrentDate();
-    int month = d.month + delta;
-    int year = d.year;
+    Rect r;
+    r.top = MiniCalendarTop() - 2;
+    r.bottom = gMainWindow->portRect.bottom;
+    r.left = 0;
+    r.right = gSidebarWidth;
+    if (r.bottom < r.top)
+        r.bottom = r.top;
+    return r;
+}
+
+static void EnsureMiniMonth()
+{
+    if (gMiniMonth < 1 || gMiniMonth > 12)
+    {
+        Date d = gCalendar->GetCurrentDate();
+        gMiniYear = (short)d.year;
+        gMiniMonth = (short)d.month;
+    }
+}
+
+// The mini-calendar's arrows move only the mini-month, not the main view.
+static void ChangeMiniMonth(int delta)
+{
+    EnsureMiniMonth();
+    int month = gMiniMonth + delta;
+    int year = gMiniYear;
     while (month > 12) { month -= 12; year++; }
     while (month < 1) { month += 12; year--; }
+    gMiniYear = (short)year;
+    gMiniMonth = (short)month;
 
-    int maxDay = Date::DaysInMonth(year, month);
-    int day = d.day > maxDay ? maxDay : d.day;
+    SetPort(gMainWindow);
+    Rect mini = MiniCalendarRect();
+    InvalRect(&mini);
+}
 
-    gCalendar->SetCurrentDate(Date(year, month, day));
+// Sets the main view's date; the mini-month follows it.
+static void GoToDate(const Date& date)
+{
+    gCalendar->SetCurrentDate(date);
+    gMiniYear = (short)date.year;
+    gMiniMonth = (short)date.month;
     SyncTimeGridScrollBar();
     SetPort(gMainWindow);
-    InvalRect(&gMainWindow->portRect);
+    Rect content = ContentBounds();
+    InvalRect(&content);
+    Rect mini = MiniCalendarRect();
+    InvalRect(&mini);
+}
+
+// Previous/next by the active view's unit: day, week, month, year.
+static void StepPeriod(int direction)
+{
+    Date d = gCalendar->GetCurrentDate();
+    switch (gCalendar->GetCurrentView())
+    {
+        case DayView:
+            d = d.AddDays(direction);
+            break;
+        case WeekView:
+            d = d.AddDays(7 * direction);
+            break;
+        case MonthView:
+        {
+            int month = d.month + direction;
+            int year = d.year;
+            while (month > 12) { month -= 12; year++; }
+            while (month < 1) { month += 12; year--; }
+            int maxDay = Date::DaysInMonth(year, month);
+            d = Date(year, month, d.day > maxDay ? maxDay : d.day);
+            break;
+        }
+        case YearView:
+        {
+            int year = d.year + direction;
+            int maxDay = Date::DaysInMonth(year, d.month);
+            d = Date(year, d.month, d.day > maxDay ? maxDay : d.day);
+            break;
+        }
+    }
+    GoToDate(d);
 }
 
 static void DrawCString(const char *str)
@@ -1642,8 +1853,20 @@ static void DrawCString(const char *str)
     DrawString(pstr);
 }
 
+static void DrawCStringCentered(const char *str, short centerX, short baseline)
+{
+    unsigned char pstr[256];
+    size_t len = strlen(str);
+    if (len > 255) len = 255;
+    pstr[0] = (unsigned char)len;
+    memcpy(&pstr[1], str, len);
+    MoveTo(centerX - StringWidth(pstr) / 2, baseline);
+    DrawString(pstr);
+}
+
 // Shared by drawing and click hit-testing so the two can never disagree
-// about where each day number actually sits.
+// about where each day number actually sits. The grid is always 6 rows,
+// starting on the Sunday on or before the 1st of the shown month.
 struct MiniCalGeometry
 {
     short colWidth;
@@ -1651,20 +1874,18 @@ struct MiniCalGeometry
     short gridTop;
     short rowHeight;
     int firstWeekday;
-    int daysInMonth;
 };
 
 static MiniCalGeometry ComputeMiniCalGeometry()
 {
-    Date date = gCalendar->GetCurrentDate();
+    EnsureMiniMonth();
 
     MiniCalGeometry g;
     g.colWidth = (gSidebarWidth - 20) / 7;
     g.weekdayRow = MiniCalendarTop() + 30;
     g.rowHeight = 14;
     g.gridTop = g.weekdayRow + g.rowHeight;
-    g.firstWeekday = Date(date.year, date.month, 1).DayOfWeek();
-    g.daysInMonth = Date::DaysInMonth(date.year, date.month);
+    g.firstWeekday = Date(gMiniYear, gMiniMonth, 1).DayOfWeek();
     return g;
 }
 
@@ -1672,39 +1893,64 @@ static void DrawMiniCalendar()
 {
     static const char *kMiniWeekdayNames[] = { "S", "M", "T", "W", "T", "F", "S" };
 
-    Date date = gCalendar->GetCurrentDate();
+    Date current = gCalendar->GetCurrentDate();
+    Date today = Calendar::Today();
     short top = MiniCalendarTop();
     MiniCalGeometry g = ComputeMiniCalGeometry();
 
+    RGBColor black = {0, 0, 0};
+    RGBColor grey = {0x9999, 0x9999, 0x9999};
+    RGBColor white = {0xFFFF, 0xFFFF, 0xFFFF};
+    RGBColor red = {0xFFFF, 0x3B3B, 0x3030};
+    RGBColor selectGrey = {0xBBBB, 0xBBBB, 0xBBBB};
+
     TextSize(10);
+    TextFace(bold);
+    char titleBuf[32];
+    snprintf(titleBuf, sizeof(titleBuf), "%s %d", kMonthNames[gMiniMonth - 1], gMiniYear);
+    DrawCStringCentered(titleBuf, gSidebarWidth / 2, top + 12);
     TextFace(normal);
 
-    char titleBuf[32];
-    snprintf(titleBuf, sizeof(titleBuf), "%s %d", kMonthNames[date.month - 1], date.year);
-    MoveTo(40, top + 12);
-    DrawCString(titleBuf);
-
     for (int i = 0; i < 7; i++)
-    {
-        MoveTo(10 + i * g.colWidth, g.weekdayRow);
-        DrawCString(kMiniWeekdayNames[i]);
-    }
+        DrawCStringCentered(kMiniWeekdayNames[i], 10 + i * g.colWidth + g.colWidth / 2, g.weekdayRow);
 
-    for (int day = 1; day <= g.daysInMonth; day++)
+    Date start = Date(gMiniYear, gMiniMonth, 1).AddDays(-g.firstWeekday);
+    short halfWidth = g.colWidth / 2 < 7 ? g.colWidth / 2 : 7;
+    for (int i = 0; i < 42; i++)
     {
-        int index = g.firstWeekday + day - 1;
-        int row = index / 7;
-        int col = index % 7;
+        Date d = start.AddDays(i);
+        int row = i / 7;
+        int col = i % 7;
+        short cx = 10 + col * g.colWidth + g.colWidth / 2;
+        short baseline = g.gridTop + row * g.rowHeight;
+
+        bool isToday = (d == today);
+        bool isCurrent = (d == current);
+        if (isToday || isCurrent)
+        {
+            Rect oval;
+            oval.left = cx - halfWidth;
+            oval.right = cx + halfWidth;
+            oval.top = baseline - 10;
+            oval.bottom = baseline + 2;
+            RGBForeColor(isToday ? &red : &selectGrey);
+            PaintOval(&oval);
+        }
+
+        if (isToday)
+            RGBForeColor(&white);
+        else
+            RGBForeColor(d.month == gMiniMonth ? &black : &grey);
 
         char numBuf[4];
-        snprintf(numBuf, sizeof(numBuf), "%d", day);
-        MoveTo(10 + col * g.colWidth, g.gridTop + row * g.rowHeight);
-        DrawCString(numBuf);
+        snprintf(numBuf, sizeof(numBuf), "%d", d.day);
+        DrawCStringCentered(numBuf, cx, baseline);
     }
+    RGBForeColor(&black);
 }
 
-// Returns true if the click landed on a valid day number, in which case
-// it has already navigated there.
+// Returns true if the click landed on a day, in which case the main view
+// has already jumped to it (keeping the current view, as Apple does).
 static bool HandleMiniCalendarClick(Point clickPoint)
 {
     MiniCalGeometry g = ComputeMiniCalGeometry();
@@ -1719,16 +1965,11 @@ static bool HandleMiniCalendarClick(Point clickPoint)
 
     int col = (clickPoint.h - 10) / g.colWidth;
     int row = (clickPoint.v - g.gridTop + g.rowHeight / 2) / g.rowHeight;
-    if (col < 0 || col > 6)
+    if (col < 0 || col > 6 || row < 0 || row > 5)
         return false;
 
-    int day = row * 7 + col - g.firstWeekday + 1;
-    if (day < 1 || day > g.daysInMonth)
-        return false;
-
-    Date date = gCalendar->GetCurrentDate();
-    gCalendar->SetCurrentDate(Date(date.year, date.month, day));
-    SwitchToView(DayView);
+    Date start = Date(gMiniYear, gMiniMonth, 1).AddDays(-g.firstWeekday);
+    GoToDate(start.AddDays(row * 7 + col));
     return true;
 }
 
@@ -1745,6 +1986,7 @@ static void SwitchToView(ViewType view)
         gUIRenderer->SetTimeGridScroll(gUIRenderer->DefaultTimeGridScroll(*gCalendar));
     }
     SyncTimeGridScrollBar();
+    UpdateToolbarHilite();
     SetPort(gMainWindow);
     InvalRect(&gMainWindow->portRect);
 }
@@ -1761,8 +2003,16 @@ static void SetupMenuBar()
 
     // File menu: New Event, then the one thing this app must reliably offer.
     menu = NewMenu(kFileMenuID, "\pFile");
-    AppendMenu(menu, "\pNew Event/N;(-;Import\311;Export\311;(-;Quit/Q");
+    AppendMenu(menu, "\pNew Event/N;(-;Import\311;Export;(-;Quit/Q");
     InsertMenu(menu, 0);
+
+    // Export is a hierarchical item (cmd char 0x1B, mark = submenu ID); the
+    // submenu is inserted into the hierarchical part of the menu list.
+    SetItemCmd(menu, kFileExportItem, 0x1B);
+    SetItemMark(menu, kFileExportItem, kExportMenuID);
+    gExportMenu = NewMenu(kExportMenuID, "\pExport");
+    AppendMenu(gExportMenu, "\pExport Calendar\311;All Calendars\311");
+    InsertMenu(gExportMenu, -1);
 
     // Edit menu: the popover inspector handles Cut/Copy/Paste itself, so the
     // items are only here for the standard menu bar (always disabled).
@@ -1773,7 +2023,7 @@ static void SetupMenuBar()
 
     // View menu: switch which calendar view is drawn.
     menu = NewMenu(kViewMenuID, "\pView");
-    AppendMenu(menu, "\pDay/1;Week/2;Month/3;Year/4");
+    AppendMenu(menu, "\pDay/1;Week/2;Month/3;Year/4;(-;Go to Today/T;Previous/[;Next/]");
     InsertMenu(menu, 0);
 
     // Event menu: enabled only while an event is selected (UpdateMenuStates).
@@ -1900,12 +2150,44 @@ static void ImportEvents()
     ShowNoteAlert(msg);
 }
 
-// File > Export: write every event (hidden calendars included) to a file.
-static void ExportEvents()
+// File > Export: all == false writes only the selected calendar, else every
+// event (hidden calendars included).
+static void ExportEvents(bool all)
 {
+    std::string calendar = SelectedCalendarName();
+    Str255 prompt, defaultName;
+
+    if (all)
+    {
+        memcpy(prompt, "\pExport all calendars as:", 26);
+        memcpy(defaultName, "\pKalendae.ics", 14);
+    }
+    else
+    {
+        if (calendar.empty())
+            return;
+        std::string shown = calendar;
+        if (shown.size() > 40)
+            shown.resize(40);
+        std::string p = "Export \322" + shown + "\323 as:";
+        prompt[0] = (unsigned char)p.size();
+        memcpy(&prompt[1], p.data(), p.size());
+
+        // <name>.ics in at most 31 characters; ':' isn't allowed in file names
+        std::string f = calendar;
+        if (f.size() > 27)
+            f.resize(27);
+        for (size_t i = 0; i < f.size(); i++)
+            if (f[i] == ':')
+                f[i] = '-';
+        f += ".ics";
+        defaultName[0] = (unsigned char)f.size();
+        memcpy(&defaultName[1], f.data(), f.size());
+    }
+
     StandardFileReply reply;
     InitCursor();
-    StandardPutFile("\pExport calendar as:", "\pKalendae.ics", &reply);
+    StandardPutFile(prompt, defaultName, &reply);
     SetPort(gMainWindow);
     if (!reply.sfGood)
         return;
@@ -1913,24 +2195,47 @@ static void ExportEvents()
     unsigned long secs = 0;
     GetDateTime(&secs);
     long offset = GetGMTOffsetSeconds();
-    std::string text = gCalendar->SerializeEvents(offset, (unsigned long)((long)secs - offset));
+    unsigned long utcNow = (unsigned long)((long)secs - offset);
+    std::string text = all ? gCalendar->SerializeEvents(offset, utcNow)
+                           : gCalendar->SerializeEventsInCategory(calendar, offset, utcNow);
 
     OSErr err = WriteStringToFile(reply.sfFile, text, 'TEXT', 'KALE');
     if (err != noErr)
         ShowMessageAlert(ErrorText("The calendar couldn\325t be exported (error ", err, ")."));
 }
 
+// "Export “<Calendar>”…" follows the sidebar selection.
+static void UpdateExportMenuItem()
+{
+    if (!gExportMenu)
+        return;
+    std::string name = SelectedCalendarName();
+    if (name.size() > 40)
+        name.resize(40);
+    std::string t = name.empty() ? std::string("Export Calendar\311")
+                                 : "Export \322" + name + "\323\311";
+    Str255 p;
+    p[0] = (unsigned char)t.size();
+    memcpy(&p[1], t.data(), t.size());
+    SetMenuItemText(gExportMenu, kExportSelectedItem, p);
+}
+
 static void UpdateMenuStates()
 {
     if (!gEventMenu || !gEditMenu)
         return;
-    MenuHandle fileMenu = GetMenuHandle(kFileMenuID);
-    if (fileMenu)
+    if (gExportMenu)
     {
-        if (gCalendar->GetAllEvents().empty())
-            DisableItem(fileMenu, kFileExportItem);
+        UpdateExportMenuItem();
+        std::string selected = SelectedCalendarName();
+        if (selected.empty() || gCalendar->CountEventsInCategory(selected) == 0)
+            DisableItem(gExportMenu, kExportSelectedItem);
         else
-            EnableItem(fileMenu, kFileExportItem);
+            EnableItem(gExportMenu, kExportSelectedItem);
+        if (gCalendar->GetAllEvents().empty())
+            DisableItem(gExportMenu, kExportAllItem);
+        else
+            EnableItem(gExportMenu, kExportAllItem);
     }
     if (gUIRenderer->GetSelectedEvent() != 0)
     {
@@ -1992,14 +2297,17 @@ static void HandleMenuChoice(long menuChoice)
             {
                 ImportEvents();
             }
-            else if (menuItem == kFileExportItem)
-            {
-                ExportEvents();
-            }
             else if (menuItem == kFileQuitItem)
             {
                 QuitApp();
             }
+            break;
+
+        case kExportMenuID:
+            if (menuItem == kExportSelectedItem)
+                ExportEvents(false);
+            else if (menuItem == kExportAllItem)
+                ExportEvents(true);
             break;
 
         case kEventMenuID:
@@ -2022,15 +2330,16 @@ static void HandleMenuChoice(long menuChoice)
 
         case kViewMenuID:
         {
-            ViewType newView = DayView;
             switch (menuItem)
             {
-                case kViewDayItem:   newView = DayView; break;
-                case kViewWeekItem:  newView = WeekView; break;
-                case kViewMonthItem: newView = MonthView; break;
-                case kViewYearItem:  newView = YearView; break;
+                case kViewDayItem:      SwitchToView(DayView); break;
+                case kViewWeekItem:     SwitchToView(WeekView); break;
+                case kViewMonthItem:    SwitchToView(MonthView); break;
+                case kViewYearItem:     SwitchToView(YearView); break;
+                case kViewTodayItem:    GoToDate(Calendar::Today()); break;
+                case kViewPreviousItem: StepPeriod(-1); break;
+                case kViewNextItem:     StepPeriod(1); break;
             }
-            SwitchToView(newView);
             break;
         }
 
@@ -2105,13 +2414,29 @@ static void HandleWindowEvent(EventRecord *event)
                     long ref = GetControlReference(control);
                     if (ref == kPrevMonthRefCon)
                     {
-                        ChangeMonth(-1);
+                        ChangeMiniMonth(-1);
                     }
                     else if (ref == kNextMonthRefCon)
                     {
-                        ChangeMonth(1);
+                        ChangeMiniMonth(1);
                     }
-                    else if (ref >= kCheckboxRefConBase)
+                    else if (ref == kPrevPeriodRefCon)
+                    {
+                        StepPeriod(-1);
+                    }
+                    else if (ref == kNextPeriodRefCon)
+                    {
+                        StepPeriod(1);
+                    }
+                    else if (ref == kTodayRefCon)
+                    {
+                        GoToDate(Calendar::Today());
+                    }
+                    else if (ref == kNewEventRefCon)
+                    {
+                        NewEventAtNextHour();
+                    }
+                    else if (ref >= kCheckboxRefConBase && ref < kPrevMonthRefCon)
                     {
                         int idx = (int)(ref - kCheckboxRefConBase);
                         std::string cname;
@@ -2119,11 +2444,13 @@ static void HandleWindowEvent(EventRecord *event)
                         if (CategoryAtIndex(idx, cname, ccolor))
                             SetCategoryVisibleByIndex(idx, !gCalendar->IsCategoryVisible(cname));
                     }
-                    else
+                    else if (ref >= 0 && ref <= 3)
                     {
                         SwitchToView((ViewType)ref);
                     }
                 }
+                // TrackControl clears the pressed look of the active view button
+                UpdateToolbarHilite();
             }
             else if (HandleSidebarRowClick(clickPoint))
             {
@@ -2169,12 +2496,42 @@ static void HandleWindowEvent(EventRecord *event)
 
 static void HandleCommandEvent(EventRecord *event)
 {
+    char ch = (char)(event->message & charCodeMask);
+    bool cmd = (event->modifiers & cmdKey) != 0;
+
+    // Navigation keys may auto-repeat
+    if (cmd && (ch == 0x1C || ch == 0x1D))
+    {
+        StepPeriod(ch == 0x1C ? -1 : 1);
+        return;
+    }
+    if (!cmd && (ch == 0x0B || ch == 0x0C))
+    {
+        ViewType view = gCalendar->GetCurrentView();
+        if (view == DayView || view == WeekView)
+        {
+            if (gScrollBar && (**gScrollBar).contrlVis)
+            {
+                short page = TimeGridPageStep();
+                ScrollTimeGridBy(gScrollBar, ch == 0x0B ? (short)-page : page);
+            }
+        }
+        else
+        {
+            StepPeriod(ch == 0x0B ? -1 : 1);
+        }
+        return;
+    }
+
     // Opening an inspector must not repeat while the key is held.
     if (event->what == autoKey)
         return;
 
-    char ch = (char)(event->message & charCodeMask);
-    if (event->modifiers & cmdKey)
+    if (!cmd && ch == 0x01)
+    {
+        GoToDate(Calendar::Today());
+    }
+    else if (cmd)
     {
         UpdateMenuStates();
         long menuChoice = MenuKey(ch);

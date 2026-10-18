@@ -60,6 +60,10 @@ public:
     void ImportEvents(const std::vector<Event>& events, const std::string& calName,
                       int* added, int* skippedExisting, int* skippedInFile, int* hidden);
     std::string SerializeEvents(long gmtOffsetSeconds, unsigned long utcNowMacSeconds) const;
+    // Same, restricted to the events of one calendar (File > Export)
+    std::string SerializeEventsInCategory(const std::string& category, long gmtOffsetSeconds,
+                                          unsigned long utcNowMacSeconds) const;
+    int CountEventsInCategory(const std::string& category) const;
 
     // Event management
     unsigned long AddEvent(const Event& event);   // returns the assigned ID

@@ -70,7 +70,14 @@ public:
     // Redraws only the scrolled hour area (used while tracking the scroll bar)
     void RedrawTimeGrid(const Calendar& calendar, const Rect& contentBounds);
 
+    // The strip at the top of the content holding the view's title; the
+    // [<] [Today] [>] buttons sit at its right end, where every view leaves
+    // kTitleNavReserve pixels free.
+    Rect GetTitleRowRect(const Rect& contentBounds) const;
+
     static const short kHourHeight = 22;
+    static const short kTitleRowHeight = 36;
+    static const short kTitleNavReserve = 150;
 
 private:
     void RenderTimeGrid(const Calendar& calendar, const Rect& bounds, bool weekMode);

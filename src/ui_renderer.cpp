@@ -274,6 +274,13 @@ bool UIRenderer::FindHitForEvent(unsigned long id, const Date& preferred, HitReg
     return true;
 }
 
+Rect UIRenderer::GetTitleRowRect(const Rect& contentBounds) const
+{
+    Rect r = contentBounds;
+    r.bottom = r.top + kTitleRowHeight;
+    return r;
+}
+
 // ---------------------------------------------------------------- Month
 
 void UIRenderer::RenderMonthView(const Calendar& calendar, const Rect& bounds)
@@ -755,8 +762,8 @@ void UIRenderer::RenderTimeGrid(const Calendar& calendar, const Rect& bounds, bo
         char titleBuf[64];
         snprintf(titleBuf, sizeof(titleBuf), "%s, %s %d, %d",
                  kFullWeekdayNames[cur.DayOfWeek()], kMonthNames[cur.month - 1], cur.day, cur.year);
-        MoveTo(bounds.left + 10, bounds.top + 24);
-        DrawCString(titleBuf);
+        DrawFitted(titleBuf, bounds.left + 10, bounds.top + 24,
+                   (short)(bounds.right - bounds.left - 10 - kTitleNavReserve));
         TextFace(normal);
     }
 

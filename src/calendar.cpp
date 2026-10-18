@@ -130,6 +130,26 @@ std::string Calendar::SerializeEvents(long gmtOffsetSeconds, unsigned long utcNo
     return parser.Serialize(mEvents, gmtOffsetSeconds, utcNowMacSeconds);
 }
 
+std::string Calendar::SerializeEventsInCategory(const std::string& category, long gmtOffsetSeconds,
+                                                unsigned long utcNowMacSeconds) const
+{
+    std::vector<Event> subset;
+    for (size_t i = 0; i < mEvents.size(); i++)
+        if (mEvents[i].GetCategory() == category)
+            subset.push_back(mEvents[i]);
+    ICALParser parser;
+    return parser.Serialize(subset, gmtOffsetSeconds, utcNowMacSeconds);
+}
+
+int Calendar::CountEventsInCategory(const std::string& category) const
+{
+    int n = 0;
+    for (size_t i = 0; i < mEvents.size(); i++)
+        if (mEvents[i].GetCategory() == category)
+            n++;
+    return n;
+}
+
 ColorRGB Calendar::NextPaletteColor() const
 {
     // Apple palette: red, orange, yellow, green, blue, purple, brown
