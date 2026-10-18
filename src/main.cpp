@@ -12,22 +12,32 @@
 #include <Dialogs.h>
 #include <Events.h>
 #include <Processes.h>
+#include <OSUtils.h>
 #include <cstdio>
 #include <cstring>
 #include "calendar.h"
 #include "ical_parser.h"
 #include "ui_renderer.h"
+#include "event_dialog.h"
 
 enum
 {
     kAppleMenuID = 1,
     kFileMenuID = 2,
-    kViewMenuID = 3
+    kViewMenuID = 3,
+    kEditMenuID = 4,
+    kEventMenuID = 5
 };
 
 enum
 {
-    kFileQuitItem = 1
+    kFileNewEventItem = 1,
+    kFileQuitItem = 3
+};
+
+enum
+{
+    kEventEditItem = 1
 };
 
 enum
@@ -36,21 +46,6 @@ enum
     kViewWeekItem = 2,
     kViewMonthItem = 3,
     kViewYearItem = 4
-};
-
-// New/Edit Event dialog (DLOG/DITL 128 in Resources/Kalendae.r). Item
-// numbers must stay in sync with that resource's declaration order.
-enum
-{
-    kEventDialogID = 128,
-    kEventOKItem = 1,
-    kEventCancelItem = 2,
-    kEventTitleItem = 4,
-    kEventLocationItem = 6,
-    kEventCategoryWorkItem = 8,
-    kEventCategoryPersonalItem = 9,
-    kEventCategoryRetroItem = 10,
-    kEventCategoryVintageItem = 11
 };
 
 // gCalendar/gUIRenderer are pointers, heap-allocated explicitly in main()
@@ -64,6 +59,7 @@ enum
 static WindowPtr gMainWindow = NULL;
 static Calendar *gCalendar = NULL;
 static UIRenderer *gUIRenderer = NULL;
+static MenuHandle gEventMenu = NULL;
 
 // Height, in pixels, of the toolbar strip reserved at the top of the
 // window content for the Day/Week/Month/Year buttons. Render*View draws
@@ -140,7 +136,16 @@ static bool GetPrefsFileSpec(FSSpec *spec);
 static void SaveWindowPrefs();
 static bool LoadWindowPrefs(Rect *outRect, short *outSidebarWidth);
 static void QuitApp();
-static bool ShowNewEventDialog(const Date& date);
+static void UpdateMenuStates();
+static void InspectorUpdate(EventRecord *event);
+static void LocalRectToGlobal(const Rect& local, Rect *global);
+static Rect CenteredAnchor();
+static void RefreshAfterEdit();
+static void EditEventWithID(unsigned long id, const Rect& anchorLocal);
+static void CreateEventWithInspector(Event& e, const Rect& anchorLocal);
+static void NewEventFromHit(const HitRegion& hit);
+static void NewEventAtNextHour();
+static void EditSelectedEvent();
 static void HandleEvent(EventRecord *event);
 static void HandleMenuChoice(long menuChoice);
 static void HandleWindowEvent(EventRecord *event);
@@ -395,8 +400,9 @@ static void HandleTimeGridScrollClick(ControlHandle control, short part, Point c
 }
 
 // Hit-map driven clicks in the content area: single click selects an event
-// (or clears the selection on an empty slot); a double-click on an empty
-// slot opens the New Event dialog (temporary until the inspector popover).
+// (or clears the selection on an empty slot); a double-click opens the
+// inspector popover (edit an event / create at an empty slot), or in Year
+// view jumps to that day.
 static void HandleContentClick(EventRecord *event, Point clickPoint)
 {
     HitRegion hit;
@@ -450,14 +456,22 @@ static void HandleContentClick(EventRecord *event, Point clickPoint)
         InvalRect(&content);
     }
 
-    if (isDouble && hit.eventID == 0 && gCalendar->GetCurrentView() != YearView)
+    if (!isDouble)
+        return;
+
+    if (gCalendar->GetCurrentView() == YearView)
     {
-        if (ShowNewEventDialog(hit.date))
-        {
-            SyncTimeGridScrollBar();
-            SetPort(gMainWindow);
-            InvalRect(&content);
-        }
+        // Year days jump to Day view on that date.
+        gCalendar->SetCurrentDate(hit.date);
+        SwitchToView(DayView);
+    }
+    else if (hit.eventID != 0)
+    {
+        EditEventWithID(hit.eventID, hit.r);
+    }
+    else
+    {
+        NewEventFromHit(hit);
     }
 }
 
@@ -631,102 +645,189 @@ static void QuitApp()
     ExitToShell();
 }
 
-// Modal New Event dialog. Returns true (and has already called
-// gCalendar->AddEvent) only if the user filled in a title and pressed OK.
-static bool ShowNewEventDialog(const Date& date)
+// ---------------------------------------------------------------- inspector
+
+static void InspectorUpdate(EventRecord *event)
 {
-    DialogPtr dlg = GetNewDialog(kEventDialogID, NULL, (WindowPtr)-1L);
-    if (!dlg)
+    HandleUpdateEvent(event);
+}
+
+static void LocalRectToGlobal(const Rect& local, Rect *global)
+{
+    SetPort(gMainWindow);
+    Point tl, br;
+    tl.v = local.top;
+    tl.h = local.left;
+    br.v = local.bottom;
+    br.h = local.right;
+    LocalToGlobal(&tl);
+    LocalToGlobal(&br);
+    global->top = tl.v;
+    global->left = tl.h;
+    global->bottom = br.v;
+    global->right = br.h;
+}
+
+// Fallback anchor (window-local): a zero-width rect placed so the ~310px
+// popover, which sits 8px right of its anchor, ends up centred in the content.
+static Rect CenteredAnchor()
+{
+    Rect c = ContentBounds();
+    short cx = (c.left + c.right) / 2 - 163;
+    short cy = (c.top + c.bottom) / 2;
+    Rect r;
+    r.top = cy;
+    r.bottom = cy;
+    r.left = cx;
+    r.right = cx;
+    return r;
+}
+
+static void RefreshAfterEdit()
+{
+    SyncTimeGridScrollBar();
+    SetPort(gMainWindow);
+    Rect content = ContentBounds();
+    InvalRect(&content);
+}
+
+static void EditEventWithID(unsigned long id, const Rect& anchorLocal)
+{
+    const Event *found = gCalendar->FindEvent(id);
+    if (!found)
+        return;
+    Event e = *found;
+
+    Rect anchor;
+    LocalRectToGlobal(anchorLocal, &anchor);
+    short result = ShowEventInspector(e, false, anchor, *gCalendar, InspectorUpdate);
+    SetPort(gMainWindow);
+
+    if (result == kInspectorSaved)
+    {
+        gCalendar->UpdateEvent(e);
+    }
+    else if (result == kInspectorDeleted)
+    {
+        gCalendar->RemoveEvent(id);
+        gUIRenderer->SetSelectedEvent(0);
+    }
+    else
+    {
+        return;
+    }
+    RefreshAfterEdit();
+}
+
+static void CreateEventWithInspector(Event& e, const Rect& anchorLocal)
+{
+    Rect anchor;
+    LocalRectToGlobal(anchorLocal, &anchor);
+    short result = ShowEventInspector(e, true, anchor, *gCalendar, InspectorUpdate);
+    SetPort(gMainWindow);
+
+    if (result == kInspectorSaved)
+    {
+        unsigned long id = gCalendar->AddEvent(e);
+        gUIRenderer->SetSelectedEvent(id);
+        RefreshAfterEdit();
+    }
+}
+
+static void SetFirstCategory(Event& e)
+{
+    const std::map<std::string, ColorRGB>& cats = gCalendar->GetCategories();
+    if (!cats.empty())
+        e.SetCategory(cats.begin()->first);
+}
+
+// Double-click on an empty slot. Month slots and the Day/Week all-day strip
+// (minute -1) create all-day events; hour slots create one-hour events.
+static void NewEventFromHit(const HitRegion& hit)
+{
+    Event e("New Event", hit.date, hit.date);
+    SetFirstCategory(e);
+    if (hit.minute < 0)
+    {
+        e.SetAllDay(true);
+        e.SetStartMinute(9 * 60);
+        e.SetEndMinute(10 * 60);
+    }
+    else
+    {
+        short end = (short)(hit.minute + 60);
+        if (end > 1440) end = 1440;
+        e.SetStartMinute(hit.minute);
+        e.SetEndMinute(end);
+    }
+    CreateEventWithInspector(e, hit.r);
+}
+
+// Looks for the visible empty slot for date/minute by probing the hit map
+// (UIRenderer only exposes point and event queries).
+static bool FindSlotRect(const Date& date, short minute, Rect *outLocal)
+{
+    ViewType view = gCalendar->GetCurrentView();
+    if (view == YearView)
         return false;
 
-    short itemType;
-    Handle itemHandle;
-    Rect itemRect;
-
-    GetDialogItem(dlg, kEventTitleItem, &itemType, &itemHandle, &itemRect);
-    SetDialogItemText(itemHandle, "\p");
-
-    GetDialogItem(dlg, kEventLocationItem, &itemType, &itemHandle, &itemRect);
-    SetDialogItemText(itemHandle, "\p");
-
-    const short radioItems[4] = {
-        kEventCategoryWorkItem, kEventCategoryPersonalItem,
-        kEventCategoryRetroItem, kEventCategoryVintageItem
-    };
-    ControlHandle radios[4];
-    for (int i = 0; i < 4; i++)
+    Rect c = ContentBounds();
+    for (short y = c.top + 1; y < c.bottom; y += 8)
     {
-        GetDialogItem(dlg, radioItems[i], &itemType, &itemHandle, &itemRect);
-        radios[i] = (ControlHandle)itemHandle;
-    }
-    SetControlValue(radios[0], 1);
-
-    SelectDialogItemText(dlg, kEventTitleItem, 0, 32767);
-
-    bool confirmed = false;
-    for (;;)
-    {
-        short itemHit;
-        ModalDialog(NULL, &itemHit);
-
-        if (itemHit == kEventOKItem)
+        for (short x = c.left + 1; x < c.right; x += 16)
         {
-            confirmed = true;
-            break;
-        }
-        if (itemHit == kEventCancelItem)
-        {
-            break;
-        }
-
-        for (int i = 0; i < 4; i++)
-        {
-            if (radioItems[i] == itemHit)
+            Point p;
+            p.v = y;
+            p.h = x;
+            HitRegion h;
+            if (gUIRenderer->HitTest(p, &h) && h.eventID == 0 && h.date == date &&
+                (view == MonthView || h.minute == minute))
             {
-                for (int j = 0; j < 4; j++)
-                {
-                    SetControlValue(radios[j], (i == j) ? 1 : 0);
-                }
+                *outLocal = h.r;
+                return true;
             }
         }
     }
+    return false;
+}
 
-    if (confirmed)
-    {
-        Str255 titleText, locationText;
-        GetDialogItem(dlg, kEventTitleItem, &itemType, &itemHandle, &itemRect);
-        GetDialogItemText(itemHandle, titleText);
-        GetDialogItem(dlg, kEventLocationItem, &itemType, &itemHandle, &itemRect);
-        GetDialogItemText(itemHandle, locationText);
+// File > New Event: current date, next whole hour (11 PM - midnight at most).
+static void NewEventAtNextHour()
+{
+    unsigned long secs;
+    DateTimeRec rec;
+    GetDateTime(&secs);
+    SecondsToDate(secs, &rec);
 
-        std::string title((char *)&titleText[1], titleText[0]);
-        std::string location((char *)&locationText[1], locationText[0]);
+    short start = (short)((rec.hour + 1) * 60);
+    if (start > 23 * 60)
+        start = 23 * 60;
 
-        if (title.empty())
-        {
-            confirmed = false;
-        }
-        else
-        {
-            static const char *kCategoryNames[4] = { "Work", "Personal", "Retro", "Vintage" };
-            std::string category = "Work";
-            for (int i = 0; i < 4; i++)
-            {
-                if (GetControlValue(radios[i]))
-                {
-                    category = kCategoryNames[i];
-                }
-            }
+    Date date = gCalendar->GetCurrentDate();
+    Event e("New Event", date, date);
+    SetFirstCategory(e);
+    e.SetStartMinute(start);
+    e.SetEndMinute((short)(start + 60));
 
-            Event newEvent(title, date, date);
-            newEvent.SetLocation(location);
-            newEvent.SetCategory(category);
-            gCalendar->AddEvent(newEvent);
-        }
-    }
+    Rect anchor;
+    if (!FindSlotRect(date, start, &anchor))
+        anchor = CenteredAnchor();
+    CreateEventWithInspector(e, anchor);
+}
 
-    DisposeDialog(dlg);
-    return confirmed;
+static void EditSelectedEvent()
+{
+    unsigned long id = gUIRenderer->GetSelectedEvent();
+    if (id == 0)
+        return;
+
+    Rect anchor = CenteredAnchor();
+    HitRegion h;
+    Rect content = ContentBounds();
+    Rect visible;
+    if (gUIRenderer->FindHitForEvent(id, &h) && SectRect(&h.r, &content, &visible))
+        anchor = h.r;
+    EditEventWithID(id, anchor);
 }
 
 static void SetupSidebar()
@@ -949,9 +1050,15 @@ static void SetupMenuBar()
     AppendMenu(menu, "\pAbout Kalendae...");
     InsertMenu(menu, 0);
 
-    // File menu: Quit is the one thing this app must reliably offer.
+    // File menu: New Event, then the one thing this app must reliably offer.
     menu = NewMenu(kFileMenuID, "\pFile");
-    AppendMenu(menu, "\pQuit/Q");
+    AppendMenu(menu, "\pNew Event/N;(-;Quit/Q");
+    InsertMenu(menu, 0);
+
+    // Edit menu: the popover inspector handles Cut/Copy/Paste itself, so the
+    // items are only here for the standard menu bar (always disabled).
+    menu = NewMenu(kEditMenuID, "\pEdit");
+    AppendMenu(menu, "\p(Undo/Z;(-;(Cut/X;(Copy/C;(Paste/V;(Clear");
     InsertMenu(menu, 0);
 
     // View menu: switch which calendar view is drawn.
@@ -959,7 +1066,23 @@ static void SetupMenuBar()
     AppendMenu(menu, "\pDay/1;Week/2;Month/3;Year/4");
     InsertMenu(menu, 0);
 
+    // Event menu: enabled only while an event is selected (UpdateMenuStates).
+    menu = NewMenu(kEventMenuID, "\pEvent");
+    AppendMenu(menu, "\pEdit Event/E");
+    InsertMenu(menu, 0);
+    gEventMenu = menu;
+
     DrawMenuBar();
+}
+
+static void UpdateMenuStates()
+{
+    if (!gEventMenu)
+        return;
+    if (gUIRenderer->GetSelectedEvent() != 0)
+        EnableItem(gEventMenu, kEventEditItem);
+    else
+        DisableItem(gEventMenu, kEventEditItem);
 }
 
 static void HandleEvent(EventRecord *event)
@@ -997,9 +1120,20 @@ static void HandleMenuChoice(long menuChoice)
     switch (menuID)
     {
         case kFileMenuID:
-            if (menuItem == kFileQuitItem)
+            if (menuItem == kFileNewEventItem)
+            {
+                NewEventAtNextHour();
+            }
+            else if (menuItem == kFileQuitItem)
             {
                 QuitApp();
+            }
+            break;
+
+        case kEventMenuID:
+            if (menuItem == kEventEditItem)
+            {
+                EditSelectedEvent();
             }
             break;
 
@@ -1116,6 +1250,7 @@ static void HandleWindowEvent(EventRecord *event)
 
         case inMenuBar:
         {
+            UpdateMenuStates();
             long menuChoice = MenuSelect(event->where);
             HandleMenuChoice(menuChoice);
             break;
@@ -1145,13 +1280,19 @@ static void HandleWindowEvent(EventRecord *event)
 
 static void HandleCommandEvent(EventRecord *event)
 {
+    char ch = (char)(event->message & charCodeMask);
     if (event->modifiers & cmdKey)
     {
-        char ch = (char)(event->message & charCodeMask);
+        UpdateMenuStates();
         long menuChoice = MenuKey(ch);
         if (menuChoice != 0)
         {
             HandleMenuChoice(menuChoice);
         }
+    }
+    else if (ch == 0x0D || ch == 0x03)
+    {
+        // Return / Enter edits the selected event
+        EditSelectedEvent();
     }
 }

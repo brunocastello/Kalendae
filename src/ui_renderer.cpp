@@ -249,6 +249,22 @@ bool UIRenderer::HitTest(Point local, HitRegion* out) const
     return false;
 }
 
+bool UIRenderer::FindHitForEvent(unsigned long id, HitRegion* out) const
+{
+    if (id == 0)
+        return false;
+    for (size_t i = 0; i < mHits.size(); i++)
+    {
+        if (mHits[i].eventID == id)
+        {
+            if (out)
+                *out = mHits[i];
+            return true;
+        }
+    }
+    return false;
+}
+
 // ---------------------------------------------------------------- Month
 
 void UIRenderer::RenderMonthView(const Calendar& calendar, const Rect& bounds)

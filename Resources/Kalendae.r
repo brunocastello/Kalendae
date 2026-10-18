@@ -10,6 +10,8 @@
 
 #include "Processes.r"
 #include "Dialogs.r"
+#include "Controls.r"
+#include "ControlDefinitions.r"
 
 resource 'SIZE' (-1) {
     reserved,
@@ -33,62 +35,130 @@ resource 'SIZE' (-1) {
 };
 
 /*
- * New/Edit Event dialog. Item numbers (1-indexed, in declaration order):
- *   1  OK button
- *   2  Cancel button
- *   3  "Title:" label       4  Title edit field
- *   5  "Location:" label    6  Location edit field
- *   7  "Category:" label
- *   8  Work radio  9  Personal radio  10  Retro radio  11  Vintage radio
- * Categories are hardcoded here rather than generated from
- * Calendar::GetCategories() since DITL items are fixed at compile time;
- * see the Roadmap in CLAUDE.md for revisiting this once categories are
- * user-editable.
+ * Event inspector popover (src/event_dialog.cpp). Item numbers, in
+ * declaration order, must match the k*Item enum in that file:
+ *   1 OK   2 Cancel   3 Delete   4 Title   5 Location   6 all-day check
+ *   7 start date   8 start time   9 end date   10 end time
+ *   11 calendar popup   12 alert popup   13 repeat popup   14 Notes
+ *   15 label column (user item; drawn right-aligned by the inspector)
+ * The popup controls point at MENU ids 200/201/202, which are built at
+ * runtime (categories are not known at compile time), so there are no
+ * MENU resources. The window is created invisible; the inspector moves it
+ * next to its anchor and then shows it.
  */
 resource 'DLOG' (128) {
-    {0, 0, 220, 360},
-    dBoxProc,
-    visible,
+    {0, 0, 318, 310},
+    altDBoxProc,
+    invisible,
     noGoAway,
     0,
     128,
-    "New Event",
-    centerMainScreen
+    "",
+    0
 };
 
 resource 'DITL' (128) {
     {
-        {180, 260, 205, 340},
+        {284, 232, 304, 298},
         Button { enabled, "OK" };
 
-        {180, 170, 205, 250},
+        {284, 156, 304, 222},
         Button { enabled, "Cancel" };
 
-        {10, 10, 26, 80},
-        StaticText { disabled, "Title:" };
+        {284, 12, 304, 78},
+        Button { enabled, "Delete" };
 
-        {10, 85, 26, 345},
+        {12, 8, 28, 302},
         EditText { enabled, "" };
 
-        {36, 10, 52, 80},
-        StaticText { disabled, "Location:" };
-
-        {36, 85, 52, 345},
+        {40, 8, 56, 302},
         EditText { enabled, "" };
 
-        {62, 10, 78, 100},
-        StaticText { disabled, "Category:" };
+        {66, 84, 82, 200},
+        CheckBox { enabled, "all-day" };
 
-        {84, 15, 100, 95},
-        RadioButton { enabled, "Work" };
+        {90, 84, 106, 172},
+        EditText { enabled, "" };
 
-        {84, 100, 100, 190},
-        RadioButton { enabled, "Personal" };
+        {90, 180, 106, 260},
+        EditText { enabled, "" };
 
-        {104, 15, 120, 95},
-        RadioButton { enabled, "Retro" };
+        {116, 84, 132, 172},
+        EditText { enabled, "" };
 
-        {104, 100, 120, 190},
-        RadioButton { enabled, "Vintage" };
+        {116, 180, 132, 260},
+        EditText { enabled, "" };
+
+        {142, 84, 162, 260},
+        Control { enabled, 129 };
+
+        {168, 84, 188, 260},
+        Control { enabled, 130 };
+
+        {194, 84, 214, 260},
+        Control { enabled, 131 };
+
+        {224, 84, 272, 302},
+        EditText { enabled, "" };
+
+        {62, 0, 276, 82},
+        UserItem { disabled };
     }
+};
+
+/* Popup controls: fixed width (1008 + 1), no title, min = MENU id. */
+resource 'CNTL' (129) {
+    {0, 0, 20, 176},
+    0,
+    visible,
+    0,
+    200,
+    1009,
+    0,
+    ""
+};
+
+resource 'CNTL' (130) {
+    {0, 0, 20, 176},
+    0,
+    visible,
+    0,
+    201,
+    1009,
+    0,
+    ""
+};
+
+resource 'CNTL' (131) {
+    {0, 0, 20, 176},
+    0,
+    visible,
+    0,
+    202,
+    1009,
+    0,
+    ""
+};
+
+/* "Invalid input" alert: ParamText(^0 = message) */
+resource 'DITL' (140) {
+    {
+        {64, 258, 84, 324},
+        Button { enabled, "OK" };
+
+        {12, 70, 54, 324},
+        StaticText { disabled, "^0" };
+    }
+};
+
+resource 'ALRT' (140) {
+    {80, 100, 164, 440},
+    140,
+    {
+        OK, visible, silent,
+        OK, visible, silent,
+        OK, visible, silent,
+        OK, visible, silent
+    },
+    alertPositionMainScreen
 };

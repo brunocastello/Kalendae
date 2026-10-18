@@ -47,6 +47,8 @@ public:
 
     // Last-added match wins (chips are added after the slots under them).
     bool HitTest(Point local, HitRegion* out) const;
+    // First drawn region of an event (window-local rect), for anchoring popovers.
+    bool FindHitForEvent(unsigned long id, HitRegion* out) const;
 
     // 0 = none. The selected chip/block is drawn highlighted.
     void SetSelectedEvent(unsigned long id) { mSelectedEvent = id; }
