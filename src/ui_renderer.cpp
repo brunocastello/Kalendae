@@ -46,7 +46,7 @@ static short CStringWidth(const char* str)
 {
     size_t len = strlen(str);
     if (len > 255) len = 255;
-    return TextWidth(str, 0, (short)len);
+    return TextWidth((Ptr)str, 0, (short)len);
 }
 
 static void ForeRGB(int r, int g, int b)
