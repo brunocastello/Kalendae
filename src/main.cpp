@@ -666,8 +666,6 @@ static void HandleContentClick(EventRecord *event, Point clickPoint)
     {
         // Year days jump to Day view on that date.
         gCalendar->SetCurrentDate(hit.date);
-        gMiniYear = (short)hit.date.year;
-        gMiniMonth = (short)hit.date.month;
         SwitchToView(DayView);
     }
     else if (hit.eventID != 0)
@@ -2020,8 +2018,8 @@ static void GoToDate(const Date& date)
     // The selected event may now be off screen; Return/Delete must not act on it.
     if (changed)
         SelectEvent(0, Date());
-    gMiniYear = (short)date.year;
-    gMiniMonth = (short)date.month;
+    // The mini-month does not follow navigation; only its own arrows (and a
+    // click on one of its days) move it.
     SyncTimeGridScrollBar();
     SetPort(gMainWindow);
     Rect content = ContentBounds();
@@ -2210,7 +2208,14 @@ static bool HandleMiniCalendarClick(Point clickPoint)
         return false;
 
     Date start = Date(gMiniYear, gMiniMonth, 1).AddDays(-g.firstWeekday);
-    GoToDate(start.AddDays(row * 7 + col));
+    Date clicked = start.AddDays(row * 7 + col);
+    GoToDate(clicked);
+    // A grey adjacent-month day shows its month (as before)
+    gMiniYear = (short)clicked.year;
+    gMiniMonth = (short)clicked.month;
+    SetPort(gMainWindow);
+    Rect mini = MiniCalendarRect();
+    InvalRect(&mini);
     return true;
 }
 
