@@ -393,6 +393,9 @@ comments.
 ---
 
 ### Carry-over notes from reviews
+- **T6**: use `X-WR-CALNAME` as the calendar for events that have no `CATEGORIES`, so an Apple export lands in its own calendar (D2) and not in "Home" (T5 RFC review).
+- **All host tests**: the PPC target is ILP32. Any host test of date/time math must run with 32-bit `long` semantics, or it hides overflow (T5 RFC review B1).
+- **Known limits (accepted)**: TZID times are read as local, and one GMT offset applies to all dates, so UTC events across a DST change can be off by one hour. `RECURRENCE-ID` overrides import as standalone events.
 - **T6**: when an import auto-creates a calendar (D2), call `RebuildControls()` and invalidate. `SetupSidebar` only runs at startup and on rebuild, so a new calendar otherwise gets no checkbox and no colour swatch (T4 review #6).
 - **T2b**: build the edited event from `*FindEvent(id)` and not from a blank `Event`. `UpdateEvent` copies `mUID` verbatim, so a fresh `Event` would wipe the UID (T1 review #1).
 - **T5**: call `ClearDirty()` after loading. Category visibility goes to the prefs file, so give it its own prefs-dirty flag instead of `mDirty`. Otherwise every checkbox toggle rewrites the events file (T1 review #3).

@@ -595,6 +595,9 @@ static const short kTitleBarHeight = 19;
 //   short version, left, top, width, height, sidebarWidth, lastView, calendarCount
 //   calendarCount x { Str63 name[64]; uchar r, g, b, visible }
 // Version 1 was just the five window shorts (10 bytes, no version field).
+// Not declared by Multiversal's Folders.h
+static const short kOnSystemDisk = -32768;
+
 static const short kPrefsVersion = 2;
 static const size_t kPrefsV1Size = 10;
 static const size_t kPrefsHeaderSize = 16;
