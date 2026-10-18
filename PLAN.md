@@ -337,7 +337,7 @@ D1, D2, D4 and D6 were confirmed by the user. D3, D5 and D7 take the recommendat
 ## 5. Checklist
 
 - [x] D1–D7 answered
-- [ ] T0 hotfix
+- [x] T0 hotfix
 - [ ] T1 foundation
 - [ ] T2a renderer / T2b inspector / T2c wiring
 - [ ] T3 delete
