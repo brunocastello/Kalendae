@@ -14,7 +14,15 @@
 #include <Events.h>
 #include <Processes.h>
 #include <OSUtils.h>
+#if __has_include(<Script.h>)
 #include <Script.h>
+#elif __has_include(<Scripts.h>)
+#include <Scripts.h>
+#elif __has_include(<Locations.h>)
+#include <Locations.h>
+#elif __has_include(<DateTimeUtils.h>)
+#include <DateTimeUtils.h>
+#endif
 #include <cstdio>
 #include <cstring>
 #include "calendar.h"
