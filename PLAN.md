@@ -48,6 +48,13 @@ layout and hierarchy follow it.
   - A timed event is a thin vertical bar in the calendar colour, then the title.
   - An all-day event is a rounded bar tinted with the calendar colour.
   - Titles are truncated with "…", and overflow reads "+N more".
+- **Contextual menus** (user screenshots 2026-10-18), via right-click or control-click:
+  - On an **empty slot**: New Event · New Reminder · Paste Event (disabled when
+    the event clipboard is empty).
+  - On an **event**: Get Info · Calendar ▸ (submenu listing the calendars, with
+    the current one checked) · — · Delete · Cut · Copy · Paste · Duplicate · — ·
+    Email Event · Email All Participants · Message All Participants.
+  - Right-clicking an event also selects it, drawn with the selected look.
 - **Sidebar**: one group header, with checkbox rows in the calendar colour
   underneath. Apple's local group is "On My Mac", which we use in place of iCloud.
   Below them is the mini-month: a `<  October 2026  >` header, S M T W T F S,
@@ -338,6 +345,49 @@ Split for implementers:
   Google/Apple-exported `.ics` sample imports without crashing (reviewer
   supplies 3 fixtures in the task prompt).
 
+### T6b — Contextual menus + event clipboard (after T6, since it reuses the serializer)
+- **Goal**: Apple's right-click menus (§0.5), using the **Contextual Menu Manager**
+  (Mac OS 8+). Call `InitContextualMenus()` at startup. On mouseDown, use
+  `IsShowContextualMenuClick(event)`, which covers both control-click and a
+  right button the mouse driver maps to it. Then `ContextualMenuSelect(menu,
+  globalPt, false, kCMHelpItemNoHelp, NULL, NULL, &selType, &menuID, &item)`.
+  If Multiversal doesn't declare the CMM calls, or `Gestalt(gestaltContextualMenuAttr)`
+  reports it as missing, fall back to control-click → `PopUpMenuSelect`
+  with the same menus. Do the hit test first (`HitTest`) so the menu matches the target.
+  - **Empty slot** (Month day, Day/Week half-hour or all-day slot):
+    - **New Event** opens the popover at that slot, the same as a double-click.
+    - **Paste Event** pastes the clipboard event at that slot, keeping its
+      duration and all-day flag. It is disabled when the clipboard is empty.
+    - "New Reminder" is **omitted**, since there is no Reminders app and it is out of scope.
+  - **Event** (right-click selects it first):
+    - **Get Info** opens the popover anchored to the chip, the same as a double-click.
+    - **Calendar ▸** is a hierarchical submenu of the calendars, with the current one
+      checked. Choosing one moves the event (`UpdateEvent`).
+    - **Delete** goes through `ConfirmAndDeleteEvent`.
+    - **Cut** copies, then deletes without confirming. Apple doesn't ask on Cut, and
+      the event can be pasted back.
+    - **Copy**.
+    - **Paste** is enabled only when the clipboard holds an event, and pastes onto
+      that event's date.
+    - **Duplicate** makes a copy with a new UID on the same date and time and selects it.
+    - "Email Event", "Email All Participants" and "Message All Participants" are
+      **omitted**, because they need the network.
+- **Event clipboard**: an in-app copy of one `Event` (ID and UID cleared on paste).
+  Copy and Cut also put the event's iCalendar text on the desk scrap
+  (`ZeroScrap` + `PutScrap('TEXT')`), so it can be pasted into SimpleText. This uses the
+  T5 serializer.
+- **Edit menu**: when no dialog is up and an event is selected, Cut ⌘X, Copy ⌘C,
+  Paste ⌘V and Duplicate ⌘D (a new item) act on events the same way. Paste then
+  targets the selected date, or the current date if nothing is selected.
+  They are enabled and disabled in `UpdateMenuStates`.
+- **Touch**: `src/main.cpp`, `src/calendar.cpp`/`include/calendar.h` (only for a
+  duplicate/clipboard helper), `Resources/Kalendae.r` (only if a MENU resource helps),
+  `include/ui_renderer.h`/`src/ui_renderer.cpp` (only if hit lookup needs it)
+- **Success**: CI green. Right-click and control-click show the correct menu
+  on events and empty slots in Day, Week and Month. Every item works. Cut then Paste
+  moves an event. Copy puts iCalendar text on the desk scrap. Duplicate creates
+  an independent event. On a system without the CMM, control-click still works.
+
 ### T7 — Today + navigation (Next-up #6)
 - **Goal**: Follow §0.5. `[<] [Today] [>]` sit at the right end of the
   **content title row**, not in the toolbar. The toolbar becomes `+` (New Event,
@@ -460,6 +510,7 @@ D1, D2, D4, D6 and D8 were confirmed by the user. D3, D5 and D7 take the recomme
 - [x] T4 filtering (reviewed; fix-up b0dacc5, Home/Work per D8)
 - [x] T5 persistence (reviewed twice; fix-up f8a01bb). Awaiting quit/relaunch test on the target.
 - [ ] T6 import/export
+- [ ] T6b contextual menus + event clipboard
 - [ ] T7 today + nav
 - [ ] T8 recurrence
 - [ ] T9 reminders
