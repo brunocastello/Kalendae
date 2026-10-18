@@ -1134,7 +1134,7 @@ static void DrawSidebar()
         memcpy(&name[1], it->first.c_str(), len);
         short avail = gSidebarWidth - kSidebarNameLeft - 6;
         if (avail > 0 && StringWidth(name) > avail)
-            TruncString(avail, name, truncEnd);
+            TruncString(avail, name, 0); // truncEnd
 
         MoveTo(kSidebarNameLeft, rowTop + 13);
         DrawString(name);
