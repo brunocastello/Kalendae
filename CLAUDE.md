@@ -5,7 +5,7 @@ Build **Kalendae** as a near-perfect functional and visual clone of the classic 
 
 - Exact same information architecture, views, sidebar behaviour, and interaction model as Apple Calendar.
 - Zero iCloud, zero network, zero cloud sync.
-- 100% offline. All data lives in local `.ics` files and Preferences.
+- 100% offline. All data lives in local `.ics` files (Application Support) and Preferences.
 - Strict native Mac OS 9 Platinum look and feel (no Aqua, no modern materials, no skeuomorphism beyond what Platinum already provides).
 
 ## Hard Constraints
@@ -20,7 +20,7 @@ Build **Kalendae** as a near-perfect functional and visual clone of the classic 
   - Same event creation / editing flow (double-click, inspector-style dialog)
   - Same keyboard shortcuts where feasible (Cmd-1…4 for views, etc.)
 - Drawing goes directly to the window port (no GWorld double-buffering — nothing animates and classic-Mac memory is limited).
-- Preferences and event data under `System Folder:Preferences`.
+- Event data under `System Folder:Application Support:Kalendae:` (it is not a preference). Only app settings (window, view, calendars) go in `System Folder:Preferences:Kalendae Preferences`.
 - Follow the sub-agent workflow strictly.
 
 ## Sub-agent Workflow (mandatory)
@@ -65,7 +65,7 @@ CI is the only source of truth. Do not run local builds.
    Unchecking a calendar must hide its events in every view.
 4. **File → Import… / Export…**  
    Standard File dialogs + full round-trip `.ics` support.
-5. **Real event persistence** across launches (write/read `.ics` or equivalent in Preferences).
+5. **Real event persistence** across launches (write/read `.ics` in `Application Support:Kalendae`).
 6. **“Today” button** that jumps to the current date in the active view.
 7. **Recurrence**  
    Expand `RRULE` so repeating events appear correctly in all views.

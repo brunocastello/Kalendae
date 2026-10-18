@@ -153,6 +153,7 @@ static void HandleContentClick(EventRecord *event, Point clickPoint);
 static void TrackSidebarResize();
 static void TrackWindowResize(WindowPtr window, Point startPoint);
 static bool GetPrefsFolderSpec(ConstStr255Param name, FSSpec *spec);
+static bool GetEventsFileSpec(FSSpec *spec);
 static void MarkWindowPrefsDirty();
 static bool SavePrefs();
 static bool LoadPrefs(Rect *outRect, short *outSidebarWidth);
@@ -610,6 +611,44 @@ static bool GetPrefsFolderSpec(ConstStr255Param name, FSSpec *spec)
     return true;
 }
 
+// Fills in the spec for "Kalendae Events" inside
+// System Folder:Application Support:Kalendae, creating that folder on first
+// use. Falls back to the Preferences folder if there is no Application
+// Support folder (very old systems) or the folder can't be made.
+static bool GetEventsFileSpec(FSSpec *spec)
+{
+    short vRefNum;
+    long dirID;
+    if (FindFolder(-1, 'asup', true, &vRefNum, &dirID) != noErr)
+        return GetPrefsFolderSpec("\pKalendae Events", spec);
+
+    FSSpec folderSpec;
+    long folderID = 0;
+    OSErr err = FSMakeFSSpec(vRefNum, dirID, "\pKalendae", &folderSpec);
+    if (err == fnfErr)
+    {
+        if (FSpDirCreate(&folderSpec, smSystemScript, &folderID) != noErr)
+            folderID = 0;
+    }
+    else if (err == noErr)
+    {
+        CInfoPBRec pb;
+        memset(&pb, 0, sizeof(pb));
+        pb.dirInfo.ioNamePtr = folderSpec.name;
+        pb.dirInfo.ioVRefNum = folderSpec.vRefNum;
+        pb.dirInfo.ioDrParID = folderSpec.parID;
+        pb.dirInfo.ioFDirIndex = 0;
+        if (PBGetCatInfoSync(&pb) == noErr && (pb.dirInfo.ioFlAttrib & ioDirMask))
+            folderID = pb.dirInfo.ioDrDirID;
+    }
+
+    if (folderID == 0)
+        return GetPrefsFolderSpec("\pKalendae Events", spec);
+
+    FSMakeFSSpec(folderSpec.vRefNum, folderID, "\pKalendae Events", spec);
+    return true;
+}
+
 static void PutShort(std::string& s, short v)
 {
     s += (char)((v >> 8) & 0xFF);
@@ -792,7 +831,7 @@ static long GetGMTOffsetSeconds()
 static void LoadEvents()
 {
     FSSpec spec;
-    if (GetPrefsFolderSpec("\pKalendae Events", &spec))
+    if (GetEventsFileSpec(&spec))
     {
         std::string text;
         if (ReadFileToString(spec, text) == noErr)
@@ -804,7 +843,7 @@ static void LoadEvents()
 static bool SaveEvents()
 {
     FSSpec spec;
-    if (!GetPrefsFolderSpec("\pKalendae Events", &spec))
+    if (!GetEventsFileSpec(&spec))
         return false;
 
     unsigned long secs = 0;

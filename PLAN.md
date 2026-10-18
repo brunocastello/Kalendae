@@ -167,7 +167,7 @@ The dialog code moves out of `main.cpp` into a new `src/event_dialog.cpp` +
 - **Event**: Edit Event (⌘E / Return), Delete Event
 
 ### 1.6 Persistence
-- Events go to `System Folder:Preferences:Kalendae Events` (type `TEXT`, creator
+- Events go to `System Folder:Application Support:Kalendae:Kalendae Events` (user decision 2026-10-18: event data is not a preference. The folder is created on demand, and if `FindFolder('asup')` fails the file falls back to Preferences). Type `TEXT`, creator
   `KALE`, iCalendar contents), using the same parser/writer as Import/Export,
   so there's a single code path.
 - The save writes a temp file (`Kalendae Events~`) and then `FSpExchangeFiles`
