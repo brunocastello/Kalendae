@@ -228,6 +228,9 @@ Split for implementers:
   the empty part of a day that already has events: chips sit on top of the day's
   slot region, so a click that misses every chip hits the slot. New events from
   Month are all-day; from Day/Week they are 1h at the half-hour slot.
+  Double-click on a Year-view day switches to Day view on that date (T2a review #6).
+  T2a already added the hit-test selection and double-click detection in
+  `main.cpp` (`HandleContentClick`). Build on it and don't duplicate it.
   Return and ⌘E open the selected event's popover. File ▸ New Event (⌘N) creates
   one at the current date and the next whole hour, anchored to that slot if it is
   visible and otherwise centred in the window.
@@ -377,6 +380,7 @@ comments.
 - **T2b**: build the edited event from `*FindEvent(id)` and not from a blank `Event`. `UpdateEvent` copies `mUID` verbatim, so a fresh `Event` would wipe the UID (T1 review #1).
 - **T5**: call `ClearDirty()` after loading. Category visibility goes to the prefs file, so give it its own prefs-dirty flag instead of `mDirty`. Otherwise every checkbox toggle rewrites the events file (T1 review #3).
 - **T8**: expand each RRULE once per event over the query range, not once per day. `GetOccurrencesInRange` is currently O(days × events) (T1 review #4).
+- **T8**: `OccurrenceMinutes` (ui_renderer.cpp) clips multi-day timed events per date, but only for non-recurring events. A recurring *multi-day* event needs each occurrence's own start and end dates from the engine to clip the same way (T2a fix-up).
 
 ---
 
@@ -429,7 +433,7 @@ D1, D2, D4 and D6 were confirmed by the user. D3, D5 and D7 take the recommendat
 - [x] D1–D7 answered
 - [x] T0 hotfix
 - [x] T1 foundation (reviewed 2026-10-18, no blockers)
-- [ ] T2a renderer ✓ / T2b inspector popover / T2c wiring
+- [ ] T2a renderer ✓ (reviewed; fix-up 4f5a965) / T2b inspector popover / T2c wiring
 - [ ] T2d popover tail (custom WDEF, polish)
 - [ ] T3 delete
 - [ ] T4 filtering

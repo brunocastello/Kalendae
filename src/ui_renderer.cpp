@@ -26,7 +26,7 @@ static const char* kFullWeekdayNames[] = {
 
 static const short kGenevaFont = 3;
 static const short kGutterWidth = 44;      // hour labels, left of the day columns
-static const short kScrollBarReserve = 16; // right edge, filled by main.cpp's scroll bar
+static const short kScrollBarReserve = 15; // right edge: the 16px bar overlaps the window frame by 1px
 static const short kHeaderBackground = 0xDD;
 
 // DrawString needs a Pascal string (length byte + bytes); everything we
