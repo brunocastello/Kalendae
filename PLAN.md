@@ -378,6 +378,7 @@ comments.
 ---
 
 ### Carry-over notes from reviews
+- **T6**: when an import auto-creates a calendar (D2), call `RebuildControls()` and invalidate. `SetupSidebar` only runs at startup and on rebuild, so a new calendar otherwise gets no checkbox and no colour swatch (T4 review #6).
 - **T2b**: build the edited event from `*FindEvent(id)` and not from a blank `Event`. `UpdateEvent` copies `mUID` verbatim, so a fresh `Event` would wipe the UID (T1 review #1).
 - **T5**: call `ClearDirty()` after loading. Category visibility goes to the prefs file, so give it its own prefs-dirty flag instead of `mDirty`. Otherwise every checkbox toggle rewrites the events file (T1 review #3).
 - **T8**: expand each RRULE once per event over the query range, not once per day. `GetOccurrencesInRange` is currently O(days × events) (T1 review #4).
@@ -438,7 +439,7 @@ D1, D2, D4, D6 and D8 were confirmed by the user. D3, D5 and D7 take the recomme
 - [x] T2a renderer (fix-up 4f5a965) / T2b inspector popover / T2c wiring (merged into T2b; fix-up 55c5cf5), reviewed. Awaiting on-screen test by the user.
 - [ ] T2d popover tail (custom WDEF, polish)
 - [x] T3 delete (reviewed; fix-up 3aea0a9)
-- [x] T4 filtering
+- [x] T4 filtering (reviewed; fix-up b0dacc5, Home/Work per D8)
 - [ ] T5 persistence
 - [ ] T6 import/export
 - [ ] T7 today + nav
