@@ -6,7 +6,7 @@
 
 #include <algorithm>
 #include <cstdio>
-#include <DateTimeUtils.h>
+#include <OSUtils.h>
 #include "calendar.h"
 #include "event.h"
 #include "ical_parser.h"
