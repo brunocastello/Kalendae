@@ -37,7 +37,20 @@ enum
 
 enum
 {
-    kEventEditItem = 1
+    kEditDeleteItem = 6
+};
+
+enum
+{
+    kEventEditItem = 1,
+    kEventDeleteItem = 2
+};
+
+enum
+{
+    kConfirmDeleteAlertID = 129,
+    kConfirmRecurringAlertID = 130,
+    kMaxAlertTitle = 60
 };
 
 enum
@@ -60,6 +73,7 @@ static WindowPtr gMainWindow = NULL;
 static Calendar *gCalendar = NULL;
 static UIRenderer *gUIRenderer = NULL;
 static MenuHandle gEventMenu = NULL;
+static MenuHandle gEditMenu = NULL;
 
 // Height, in pixels, of the toolbar strip reserved at the top of the
 // window content for the Day/Week/Month/Year buttons. Render*View draws
@@ -107,6 +121,11 @@ static unsigned long gLastClickEventID = 0;
 static int gLastClickYear = 0, gLastClickMonth = 0, gLastClickDay = 0;
 static short gLastClickMinute = 0;
 
+// Date of the selected occurrence (needed to delete just one occurrence of a
+// recurring event). Plain shorts: a static Date would need a constructor.
+static short gSelYear = 0, gSelMonth = 0, gSelDay = 0;
+static ModalFilterUPP gConfirmFilterUPP = NULL;
+
 static const char* kMonthNames[] = {
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December"
@@ -137,6 +156,9 @@ static void SaveWindowPrefs();
 static bool LoadWindowPrefs(Rect *outRect, short *outSidebarWidth);
 static void QuitApp();
 static void UpdateMenuStates();
+static void SelectEvent(unsigned long id, const Date& date);
+static bool ConfirmAndDeleteEvent(unsigned long id, const Date& occurrenceDate);
+static void RefreshAfterEdit();
 static void InspectorUpdate(EventRecord *event);
 static void LocalRectToGlobal(const Rect& local, Rect *global);
 static Rect CenteredAnchor();
@@ -412,7 +434,7 @@ static void HandleContentClick(EventRecord *event, Point clickPoint)
         gLastClickValid = false;
         if (gUIRenderer->GetSelectedEvent() != 0)
         {
-            gUIRenderer->SetSelectedEvent(0);
+            SelectEvent(0, Date());
             Rect content = ContentBounds();
             SetPort(gMainWindow);
             InvalRect(&content);
@@ -450,11 +472,9 @@ static void HandleContentClick(EventRecord *event, Point clickPoint)
     SetPort(gMainWindow);
 
     unsigned long selected = gUIRenderer->GetSelectedEvent();
+    SelectEvent(hit.eventID, hit.date);
     if (hit.eventID != selected)
-    {
-        gUIRenderer->SetSelectedEvent(hit.eventID);
         InvalRect(&content);
-    }
 
     if (!isDouble)
         return;
@@ -691,6 +711,85 @@ static void RefreshAfterEdit()
     InvalRect(&content);
 }
 
+static void SelectEvent(unsigned long id, const Date& date)
+{
+    gUIRenderer->SetSelectedEvent(id);
+    gSelYear = (short)date.year;
+    gSelMonth = (short)date.month;
+    gSelDay = (short)date.day;
+}
+
+// Esc and Cmd-. cancel (item 2); Return/Enter take the default (item 1).
+static pascal Boolean ConfirmFilter(DialogPtr dlg, EventRecord *event, short *itemHit)
+{
+    (void)dlg;
+    if (event->what == keyDown)
+    {
+        char ch = (char)(event->message & charCodeMask);
+        if (ch == 0x1B || ((event->modifiers & cmdKey) && ch == '.'))
+        {
+            *itemHit = 2;
+            return true;
+        }
+        if (ch == 0x0D || ch == 0x03)
+        {
+            *itemHit = 1;
+            return true;
+        }
+    }
+    return false;
+}
+
+// Asks first, then deletes. Recurring events offer one occurrence (EXDATE)
+// or the whole series. Returns true if something was deleted.
+static bool ConfirmAndDeleteEvent(unsigned long id, const Date& occurrenceDate)
+{
+    const Event *found = gCalendar->FindEvent(id);
+    if (!found)
+        return false;
+    bool recurring = found->IsRecurring();
+    std::string title = found->GetTitle();
+
+    Str255 p;
+    size_t n = title.length();
+    if (n > kMaxAlertTitle)
+    {
+        memcpy(p + 1, title.c_str(), kMaxAlertTitle - 1);
+        p[kMaxAlertTitle] = 0xC9;   // ellipsis
+        p[0] = kMaxAlertTitle;
+    }
+    else
+    {
+        memcpy(p + 1, title.c_str(), n);
+        p[0] = (unsigned char)n;
+    }
+
+    if (!gConfirmFilterUPP)
+        gConfirmFilterUPP = NewModalFilterUPP(ConfirmFilter);
+    ParamText(p, "\p", "\p", "\p");
+    short item = CautionAlert(recurring ? kConfirmRecurringAlertID : kConfirmDeleteAlertID,
+                              gConfirmFilterUPP);
+    SetPort(gMainWindow);
+
+    if (item == 2)
+        return false;
+    if (recurring && item == 1)
+        gCalendar->AddExDate(id, occurrenceDate);
+    else
+        gCalendar->RemoveEvent(id);
+
+    SelectEvent(0, Date());
+    RefreshAfterEdit();
+    return true;
+}
+
+static void DeleteSelectedEvent()
+{
+    unsigned long id = gUIRenderer->GetSelectedEvent();
+    if (id != 0)
+        ConfirmAndDeleteEvent(id, Date(gSelYear, gSelMonth, gSelDay));
+}
+
 static void EditEventWithID(unsigned long id, const Rect& anchorLocal)
 {
     const Event *found = gCalendar->FindEvent(id);
@@ -709,8 +808,9 @@ static void EditEventWithID(unsigned long id, const Rect& anchorLocal)
     }
     else if (result == kInspectorDeleted)
     {
-        gCalendar->RemoveEvent(id);
-        gUIRenderer->SetSelectedEvent(0);
+        // Cancelling the confirmation leaves everything as it was.
+        ConfirmAndDeleteEvent(id, Date(gSelYear, gSelMonth, gSelDay));
+        return;
     }
     else
     {
@@ -729,7 +829,7 @@ static void CreateEventWithInspector(Event& e, const Rect& anchorLocal)
     if (result == kInspectorSaved)
     {
         unsigned long id = gCalendar->AddEvent(e);
-        gUIRenderer->SetSelectedEvent(id);
+        SelectEvent(id, e.GetStartTime());
         RefreshAfterEdit();
     }
 }
@@ -1058,8 +1158,9 @@ static void SetupMenuBar()
     // Edit menu: the popover inspector handles Cut/Copy/Paste itself, so the
     // items are only here for the standard menu bar (always disabled).
     menu = NewMenu(kEditMenuID, "\pEdit");
-    AppendMenu(menu, "\p(Undo/Z;(-;(Cut/X;(Copy/C;(Paste/V;(Clear");
+    AppendMenu(menu, "\p(Undo/Z;(-;(Cut/X;(Copy/C;(Paste/V;(Delete");
     InsertMenu(menu, 0);
+    gEditMenu = menu;
 
     // View menu: switch which calendar view is drawn.
     menu = NewMenu(kViewMenuID, "\pView");
@@ -1068,7 +1169,7 @@ static void SetupMenuBar()
 
     // Event menu: enabled only while an event is selected (UpdateMenuStates).
     menu = NewMenu(kEventMenuID, "\pEvent");
-    AppendMenu(menu, "\pEdit Event/E");
+    AppendMenu(menu, "\pEdit Event/E;Delete Event");
     InsertMenu(menu, 0);
     gEventMenu = menu;
 
@@ -1077,12 +1178,20 @@ static void SetupMenuBar()
 
 static void UpdateMenuStates()
 {
-    if (!gEventMenu)
+    if (!gEventMenu || !gEditMenu)
         return;
     if (gUIRenderer->GetSelectedEvent() != 0)
+    {
         EnableItem(gEventMenu, kEventEditItem);
+        EnableItem(gEventMenu, kEventDeleteItem);
+        EnableItem(gEditMenu, kEditDeleteItem);
+    }
     else
+    {
         DisableItem(gEventMenu, kEventEditItem);
+        DisableItem(gEventMenu, kEventDeleteItem);
+        DisableItem(gEditMenu, kEditDeleteItem);
+    }
 }
 
 static void HandleEvent(EventRecord *event)
@@ -1134,6 +1243,17 @@ static void HandleMenuChoice(long menuChoice)
             if (menuItem == kEventEditItem)
             {
                 EditSelectedEvent();
+            }
+            else if (menuItem == kEventDeleteItem)
+            {
+                DeleteSelectedEvent();
+            }
+            break;
+
+        case kEditMenuID:
+            if (menuItem == kEditDeleteItem)
+            {
+                DeleteSelectedEvent();
             }
             break;
 
@@ -1298,5 +1418,10 @@ static void HandleCommandEvent(EventRecord *event)
     {
         // Return / Enter edits the selected event
         EditSelectedEvent();
+    }
+    else if (ch == 0x08 || ch == 0x7F)
+    {
+        // Delete / Forward Delete removes the selected event (after asking)
+        DeleteSelectedEvent();
     }
 }
