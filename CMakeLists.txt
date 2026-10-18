@@ -21,6 +21,7 @@ add_application(Kalendae
     src/ui_renderer.cpp
     src/event.cpp
     src/event_dialog.cpp
+    src/calendar_dialog.cpp
     src/recurrence.cpp
     Resources/Kalendae.r
     CREATOR "KALE"

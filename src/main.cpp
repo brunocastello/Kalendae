@@ -24,6 +24,7 @@
 #include "ical_parser.h"
 #include "ui_renderer.h"
 #include "event_dialog.h"
+#include "calendar_dialog.h"
 
 enum
 {
@@ -38,9 +39,10 @@ enum
 enum
 {
     kFileNewEventItem = 1,
-    kFileImportItem = 3,
-    kFileExportItem = 4,    // parent of the Export submenu
-    kFileQuitItem = 6
+    kFileNewCalendarItem = 2,
+    kFileImportItem = 4,
+    kFileExportItem = 5,    // parent of the Export submenu
+    kFileQuitItem = 7
 };
 
 enum
@@ -64,6 +66,7 @@ enum
 {
     kConfirmDeleteAlertID = 129,
     kConfirmRecurringAlertID = 130,
+    kConfirmDeleteCalendarAlertID = 144,
     kQuitSaveFailedAlertID = 141,
     kMessageAlertID = 142,
     kNoteAlertID = 143,
@@ -138,6 +141,15 @@ static const long kTimeGridScrollRefCon = 3000;
 // events and is what File > Export writes. Fixed buffer: no static ctors.
 static char gSelectedCalendar[64] = "";
 
+// True after a calendar row was the last thing clicked (cleared by clicks in
+// the content, event selection, navigation and view changes): Edit > Delete
+// and the Delete key then act on the selected calendar, if no event is selected.
+static bool gSidebarHasFocus = false;
+
+// Double-click detection for the sidebar rows (POD only).
+static unsigned long gLastRowClickTicks = 0;
+static int gLastRowClickIndex = -1;
+
 // The month shown in the sidebar mini-calendar; moved by its own arrows and
 // whenever the main date changes. 0 until first needed.
 static short gMiniYear = 0, gMiniMonth = 0;
@@ -183,6 +195,7 @@ static void StepPeriod(int direction);
 static void SetupTitleNavButtons();
 static void UpdateToolbarHilite();
 static std::string SelectedCalendarName();
+static void UpdateExportMenuItem();
 static void SwitchToView(ViewType view);
 static Rect ContentBounds();
 static void RebuildControls();
@@ -596,6 +609,7 @@ static void HandleTimeGridScrollClick(ControlHandle control, short part, Point c
 // view jumps to that day.
 static void HandleContentClick(EventRecord *event, Point clickPoint)
 {
+    gSidebarHasFocus = false;
     HitRegion hit;
     if (!gUIRenderer->HitTest(clickPoint, &hit))
     {
@@ -1280,6 +1294,8 @@ static void RefreshAfterEdit()
 
 static void SelectEvent(unsigned long id, const Date& date)
 {
+    if (id != 0)
+        gSidebarHasFocus = false;
     gUIRenderer->SetSelectedEvent(id);
     gSelYear = (short)date.year;
     gSelMonth = (short)date.month;
@@ -1594,6 +1610,142 @@ static std::string SelectedCalendarName()
     return std::string(gSelectedCalendar);
 }
 
+// ------------------------------------------------------ calendar management
+
+static void SetSelectedCalendar(const std::string& name)
+{
+    strncpy(gSelectedCalendar, name.c_str(), sizeof(gSelectedCalendar) - 1);
+    gSelectedCalendar[sizeof(gSelectedCalendar) - 1] = '\0';
+}
+
+// Opens Calendar Info for `name` and applies the outcome to the window.
+static void EditCalendarInfo(const std::string& nameIn)
+{
+    std::string name(nameIn);
+    bool wasSelected = (name == SelectedCalendarName());
+    std::string newName = name;
+    bool ok = ShowCalendarInfo(*gCalendar, name, InspectorUpdate, &newName);
+    SetPort(gMainWindow);
+    if (!ok)
+        return;
+
+    if (wasSelected)
+        SetSelectedCalendar(newName);
+    gLastRowClickIndex = -1;
+    UpdateExportMenuItem();
+    RebuildControls();      // renaming can reorder the rows
+    InvalRect(&gMainWindow->portRect);
+}
+
+// File > New Calendar: "Untitled" (numbered on a clash), next palette colour,
+// selected, then straight into Calendar Info. Cancelling there keeps it.
+static void NewCalendar()
+{
+    const std::map<std::string, ColorRGB>& cats = gCalendar->GetCategories();
+    if (cats.size() >= (size_t)kMaxPrefsCalendars)
+    {
+        ShowMessageAlert("Kalendae supports at most 64 calendars.");
+        return;
+    }
+
+    std::string name = "Untitled";
+    for (int n = 2; cats.find(name) != cats.end() && n < 10000; n++)
+    {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d", n);
+        name = std::string("Untitled ") + buf;
+    }
+    if (cats.find(name) != cats.end())
+        return;
+
+    gCalendar->AddCategory(name, gCalendar->NextPaletteColor());
+    gCalendar->SetCategoryVisible(name, true);
+    SetSelectedCalendar(name);
+    gSidebarHasFocus = true;
+    gLastClickValid = false;
+    gLastRowClickIndex = -1;
+    UpdateExportMenuItem();
+    RebuildControls();
+    SetPort(gMainWindow);
+    InvalRect(&gMainWindow->portRect);
+
+    EditCalendarInfo(name);
+}
+
+// Asks first, then deletes the calendar and all of its events. The last
+// calendar can't be deleted (returns false without asking).
+static bool ConfirmAndDeleteCalendar(const std::string& nameIn)
+{
+    std::string name(nameIn);
+    const std::map<std::string, ColorRGB>& cats = gCalendar->GetCategories();
+    if (cats.size() <= 1 || cats.find(name) == cats.end())
+        return false;
+
+    int count = gCalendar->CountEventsInCategory(name);
+    std::string tail;
+    if (count == 0)
+    {
+        tail = "It has no events.";
+    }
+    else
+    {
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d", count);
+        tail = std::string("Its ") + buf +
+               (count == 1 ? " event" : " events") + " will also be deleted.";
+    }
+
+    Str255 p0, p1;
+    if (name.size() > (size_t)kMaxAlertTitle)
+    {
+        memcpy(p0 + 1, name.c_str(), kMaxAlertTitle - 1);
+        p0[kMaxAlertTitle] = 0xC9;   // ellipsis
+        p0[0] = kMaxAlertTitle;
+    }
+    else
+    {
+        memcpy(p0 + 1, name.c_str(), name.size());
+        p0[0] = (unsigned char)name.size();
+    }
+    p1[0] = (unsigned char)tail.size();     // < 60 characters
+    memcpy(&p1[1], tail.data(), tail.size());
+
+    if (!gConfirmFilterUPP)
+        gConfirmFilterUPP = NewModalFilterUPP(ConfirmFilter);
+    ParamText(p0, p1, "\p", "\p");
+    InitCursor();
+    short item = CautionAlert(kConfirmDeleteCalendarAlertID, gConfirmFilterUPP);
+    SetPort(gMainWindow);
+    if (item != 1)
+        return false;
+
+    if (!gCalendar->RemoveCategory(name))
+        return false;
+
+    gSidebarHasFocus = false;
+    gLastClickValid = false;
+    gLastRowClickIndex = -1;
+    unsigned long selected = gUIRenderer->GetSelectedEvent();
+    if (selected != 0 && !gCalendar->FindEvent(selected))
+        SelectEvent(0, Date());
+    SelectedCalendarName();     // falls back to the first calendar if it was the one deleted
+    UpdateExportMenuItem();
+    RebuildControls();
+    RefreshAfterEdit();
+    InvalRect(&gMainWindow->portRect);
+    return true;
+}
+
+// Edit > Delete / the Delete key: the selected event, else (when the sidebar
+// was clicked last) the selected calendar.
+static void DeleteSelection()
+{
+    if (gUIRenderer->GetSelectedEvent() != 0)
+        DeleteSelectedEvent();
+    else if (gSidebarHasFocus)
+        ConfirmAndDeleteCalendar(SelectedCalendarName());
+}
+
 static Rect SidebarRowsRect()
 {
     Rect r;
@@ -1669,11 +1821,10 @@ static void SetCategoryVisibleByIndex(int index, bool visible)
     RefreshAfterEdit();
 }
 
-static void UpdateExportMenuItem();
-
 // Click on a row's swatch or name selects the calendar (on mouse-down, as
-// Apple does); only the checkbox toggles visibility.
-static bool HandleSidebarRowClick(Point clickPoint)
+// Apple does); only the checkbox toggles visibility. A double-click opens
+// Calendar Info.
+static bool HandleSidebarRowClick(EventRecord *event, Point clickPoint)
 {
     if (clickPoint.h < kSidebarCheckLeft || clickPoint.h >= gSidebarWidth - kSplitterWidth)
         return false;
@@ -1689,14 +1840,27 @@ static bool HandleSidebarRowClick(Point clickPoint)
             if (!CategoryAtIndex(i, name, color))
                 return false;
 
+            gSidebarHasFocus = true;
+            gLastClickValid = false;
+
             if (name != SelectedCalendarName())
             {
-                strncpy(gSelectedCalendar, name.c_str(), sizeof(gSelectedCalendar) - 1);
-                gSelectedCalendar[sizeof(gSelectedCalendar) - 1] = '\0';
+                SetSelectedCalendar(name);
                 UpdateExportMenuItem();
                 SetPort(gMainWindow);
                 Rect rows = SidebarRowsRect();
                 InvalRect(&rows);
+            }
+
+            if (gLastRowClickIndex == i && (long)(event->when - gLastRowClickTicks) <= GetDblTime())
+            {
+                gLastRowClickIndex = -1;
+                EditCalendarInfo(name);
+            }
+            else
+            {
+                gLastRowClickIndex = i;
+                gLastRowClickTicks = event->when;
             }
             return true;
         }
@@ -1850,6 +2014,7 @@ static void ChangeMiniMonth(int delta)
 // Sets the main view's date; the mini-month follows it.
 static void GoToDate(const Date& date)
 {
+    gSidebarHasFocus = false;
     bool changed = !(gCalendar->GetCurrentDate() == date);
     gCalendar->SetCurrentDate(date);
     // The selected event may now be off screen; Return/Delete must not act on it.
@@ -2052,6 +2217,7 @@ static bool HandleMiniCalendarClick(Point clickPoint)
 static void SwitchToView(ViewType view)
 {
     ViewType previous = gCalendar->GetCurrentView();
+    gSidebarHasFocus = false;
     gCalendar->SetCurrentView(view);
     gCalendar->MarkPrefsDirty();
     // Only a fresh entry into the time grid resets the scroll position.
@@ -2079,7 +2245,7 @@ static void SetupMenuBar()
 
     // File menu: New Event, then the one thing this app must reliably offer.
     menu = NewMenu(kFileMenuID, "\pFile");
-    AppendMenu(menu, "\pNew Event/N;(-;Import\311;Export;(-;Quit/Q");
+    AppendMenu(menu, "\pNew Event/N;New Calendar;(-;Import\311;Export;(-;Quit/Q");
     InsertMenu(menu, 0);
 
     // Export is a hierarchical item (cmd char 0x1B, mark = submenu ID); the
@@ -2314,6 +2480,9 @@ static void UpdateMenuStates()
         else
             EnableItem(gExportMenu, kExportAllItem);
     }
+    // Edit > Delete also deletes the selected calendar when the sidebar was
+    // clicked last (never the only one).
+    bool calendarDeletable = gSidebarHasFocus && gCalendar->GetCategories().size() > 1;
     if (gUIRenderer->GetSelectedEvent() != 0)
     {
         EnableItem(gEventMenu, kEventEditItem);
@@ -2324,7 +2493,10 @@ static void UpdateMenuStates()
     {
         DisableItem(gEventMenu, kEventEditItem);
         DisableItem(gEventMenu, kEventDeleteItem);
-        DisableItem(gEditMenu, kEditDeleteItem);
+        if (calendarDeletable)
+            EnableItem(gEditMenu, kEditDeleteItem);
+        else
+            DisableItem(gEditMenu, kEditDeleteItem);
     }
 }
 
@@ -2370,6 +2542,10 @@ static void HandleMenuChoice(long menuChoice)
             {
                 NewEventAtNextHour();
             }
+            else if (menuItem == kFileNewCalendarItem)
+            {
+                NewCalendar();
+            }
             else if (menuItem == kFileImportItem)
             {
                 ImportEvents();
@@ -2401,7 +2577,7 @@ static void HandleMenuChoice(long menuChoice)
         case kEditMenuID:
             if (menuItem == kEditDeleteItem)
             {
-                DeleteSelectedEvent();
+                DeleteSelection();
             }
             break;
 
@@ -2529,7 +2705,7 @@ static void HandleWindowEvent(EventRecord *event)
                 // TrackControl clears the pressed look of the active view button
                 UpdateToolbarHilite();
             }
-            else if (HandleSidebarRowClick(clickPoint))
+            else if (HandleSidebarRowClick(event, clickPoint))
             {
                 // toggled a calendar via its swatch or name
             }
@@ -2604,6 +2780,15 @@ static void HandleCommandEvent(EventRecord *event)
     if (event->what == autoKey)
         return;
 
+    // Option-Cmd-N (File > New Calendar). Option changes the character, so
+    // match the virtual key code (N = 0x2D).
+    if (cmd && (event->modifiers & optionKey) &&
+        ((event->message & keyCodeMask) >> 8) == 0x2D)
+    {
+        NewCalendar();
+        return;
+    }
+
     if (!cmd && ch == 0x01)
     {
         GoToDate(Calendar::Today());
@@ -2624,7 +2809,7 @@ static void HandleCommandEvent(EventRecord *event)
     }
     else if (ch == 0x08 || ch == 0x7F)
     {
-        // Delete / Forward Delete removes the selected event (after asking)
-        DeleteSelectedEvent();
+        // Delete / Forward Delete removes the selected event or calendar (after asking)
+        DeleteSelection();
     }
 }

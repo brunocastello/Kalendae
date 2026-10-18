@@ -128,6 +128,15 @@ public:
         mCategoryVisible.clear();
     }
 
+    // Renames a calendar: colour and visibility move to the new key and every
+    // event of the calendar follows. False if old is unknown, new is empty or
+    // already taken (new is clamped to 63 characters first).
+    bool RenameCategory(const std::string& oldName, const std::string& newName);
+    void SetCategoryColor(const std::string& name, const ColorRGB& color);
+    // Removes a calendar and all of its events. False if it is unknown or the
+    // last remaining calendar.
+    bool RemoveCategory(const std::string& name);
+
     // Next colour of the Apple palette cycle not yet used by a calendar
     ColorRGB NextPaletteColor() const;
 

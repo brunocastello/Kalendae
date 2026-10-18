@@ -272,3 +272,78 @@ resource 'ALRT' (143) {
     },
     alertPositionMainScreen
 };
+
+/*
+ * Calendar Info dialog (src/calendar_dialog.cpp). Item numbers, in
+ * declaration order, must match the k*Item enum in that file:
+ *   1 OK   2 Cancel   3 name   4 colour popup   5 colour swatch (user item)
+ *   6 "Name:"   7 "Color:"
+ * The popup points at MENU id 203, built at runtime.
+ */
+resource 'DLOG' (145) {
+    {0, 0, 102, 300},
+    movableDBoxProc,
+    invisible,
+    noGoAway,
+    0,
+    145,
+    "Calendar Info",
+    0
+};
+
+resource 'DITL' (145) {
+    {
+        {72, 226, 92, 292},
+        Button { enabled, "OK" };
+
+        {72, 150, 92, 216},
+        Button { enabled, "Cancel" };
+
+        {14, 72, 30, 292},
+        EditText { enabled, "" };
+
+        {42, 72, 62, 232},
+        Control { enabled, 132 };
+
+        {44, 244, 60, 260},
+        UserItem { disabled };
+
+        {14, 12, 30, 68},
+        StaticText { disabled, "Name:" };
+
+        {44, 12, 60, 68},
+        StaticText { disabled, "Color:" };
+    }
+};
+
+/* Colour popup, same layout as 'CNTL' 129..131 but menu id 203 (0x00CB). */
+data 'CNTL' (132) {
+    $"0000 0000 0014 00B0 0000 0100 0000 00CB 03F1 0000 0000 00"
+};
+
+/* Delete calendar confirmation: ParamText(^0 = name, ^1 = event count text).
+   Delete (default) / Cancel. */
+resource 'DITL' (144) {
+    {
+        {86, 258, 106, 324},
+        Button { enabled, "Delete" };
+
+        {86, 180, 106, 246},
+        Button { enabled, "Cancel" };
+
+        {12, 70, 76, 324},
+        StaticText { disabled, "Are you sure you want to delete the calendar \322^0\323? ^1" };
+    }
+};
+
+resource 'ALRT' (144) {
+    {80, 100, 196, 440},
+    144,
+    {
+        OK, visible, silent,
+        OK, visible, silent,
+        OK, visible, silent,
+        OK, visible, silent
+    },
+    alertPositionMainScreen
+};

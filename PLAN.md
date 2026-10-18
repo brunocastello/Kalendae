@@ -564,7 +564,7 @@ D1, D2, D4, D6 and D8 were confirmed by the user. D3, D5 and D7 take the recomme
 - [x] T5 persistence (reviewed twice; fix-ups f8a01bb, 2c64c6d). Quit/relaunch verified on the target by the user on 2026-10-18.
 - [x] T6 import/export (import verified on the target by the user on 2026-10-18)
 - [x] T4b sidebar selection + T7 today/nav (one task)
-- [ ] T4c calendar management (new/rename/colour/delete)
+- [x] T4c calendar management (new/rename/colour/delete)
 - [ ] T6b contextual menus + event clipboard (+ sidebar row menu for T4c)
 - [ ] T8 recurrence
 - [ ] T9 reminders

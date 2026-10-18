@@ -254,6 +254,74 @@ void Calendar::SetCategoryVisible(const std::string& name, bool visible)
     mPrefsDirty = true;
 }
 
+bool Calendar::RenameCategory(const std::string& oldNameIn, const std::string& newNameIn)
+{
+    std::string oldName(oldNameIn);     // the caller's string may live in the map
+    std::string newName(newNameIn);
+    if (newName.size() > 63)
+        newName.resize(63);
+    if (newName.empty())
+        return false;
+    std::map<std::string, ColorRGB>::iterator it = mCategories.find(oldName);
+    if (it == mCategories.end())
+        return false;
+    if (newName == oldName)
+        return true;
+    if (mCategories.find(newName) != mCategories.end())
+        return false;
+
+    ColorRGB color = it->second;
+    bool visible = IsCategoryVisible(oldName);
+    mCategories.erase(it);
+    mCategoryVisible.erase(oldName);
+    mCategories[newName] = color;
+    mCategoryVisible[newName] = visible;
+
+    for (size_t i = 0; i < mEvents.size(); i++)
+    {
+        if (mEvents[i].GetCategory() == oldName)
+        {
+            mEvents[i].SetCategory(newName);
+            mDirty = true;
+        }
+    }
+    mPrefsDirty = true;
+    return true;
+}
+
+void Calendar::SetCategoryColor(const std::string& name, const ColorRGB& color)
+{
+    std::map<std::string, ColorRGB>::iterator it = mCategories.find(name);
+    if (it == mCategories.end())
+        return;
+    it->second = color;
+    mPrefsDirty = true;
+}
+
+bool Calendar::RemoveCategory(const std::string& nameIn)
+{
+    std::string name(nameIn);
+    if (mCategories.size() <= 1 || mCategories.find(name) == mCategories.end())
+        return false;
+
+    for (size_t i = 0; i < mEvents.size(); )
+    {
+        if (mEvents[i].GetCategory() == name)
+        {
+            mEvents.erase(mEvents.begin() + i);
+            mDirty = true;
+        }
+        else
+        {
+            i++;
+        }
+    }
+    mCategories.erase(name);
+    mCategoryVisible.erase(name);
+    mPrefsDirty = true;
+    return true;
+}
+
 bool Calendar::IsCategoryVisible(const std::string& name) const
 {
     std::map<std::string, bool>::const_iterator it = mCategoryVisible.find(name);
