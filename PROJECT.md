@@ -1,3 +1,5 @@
+This document is the original technical blueprint. Active development priorities and agent instructions now live in CLAUDE.md.
+
 # Building a Native Calendar App for Mac OS 9
 **Software Architecture & Technical Blueprint**
 

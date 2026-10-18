@@ -1,60 +1,110 @@
-# CLAUDE.md - Kalendae (Mac OS 9 Calendar Clone)
+# CLAUDE.md — Kalendae (Mac OS 9 Calendar Clone)
 
-## Project Overview
-This repository contains **Kalendae**, a native Classic Mac OS Calendar application designed for PowerPC hardware[cite: 13, 14, 15]. It mimics the modern multi-view interface of Apple Calendar while strictly adhering to the **Mac OS 9 Platinum Theme** and running **100% offline** via local `.ics` file imports and exports[cite: 13, 14, 15].
+## Project Goal
+Build **Kalendae** as a near-perfect functional and visual clone of the classic Apple Calendar app (the clean Lion / Mavericks-era design), running natively on Mac OS 9 with the authentic **Platinum** theme.
 
-## Reference Specification
-* **Detailed Blueprint & Architecture:** For complete engineering specifications, data flow diagrams, `.ics` parsing logic, and milestone estimates, see [PROJECT.md](./PROJECT.md).
+- Exact same information architecture, views, sidebar behaviour, and interaction model as Apple Calendar.
+- Zero iCloud, zero network, zero cloud sync.
+- 100% offline. All data lives in local `.ics` files and Preferences.
+- Strict native Mac OS 9 Platinum look and feel (no Aqua, no modern materials, no skeuomorphism beyond what Platinum already provides).
 
-## Build & Compilation Rules (GitHub Actions Only)
-* **No Local Compilation:** This project is never compiled locally. All builds execute exclusively inside automated **GitHub Actions** workflows[cite: 13, 14, 15].
-* **Toolchain:** The build environment relies on the prebuilt **Retro68** toolchain container (`ghcr.io/autc04/retro68`) running inside GitHub Actions. It uses Retro68's bundled open-source **Multiversal Interfaces** rather than Apple's Universal Interfaces, since Apple no longer distributes the latter and its license does not permit redistribution — meaning it cannot be auto-fetched in CI[cite: 13, 14, 15].
-* **CMake & Make Configuration:** 
-  * Configure: `cmake .. -DCMAKE_BUILD_TYPE=Release`[cite: 13, 14, 15]
-  * Compile: `make`[cite: 13, 14, 15]
-* **Target Output:** Standard Mac OS application binary with resource forks (`APPL` type, custom creator code) generated as a CI build artifact[cite: 13, 14, 15].
+## Hard Constraints
+- Target: Classic Mac OS 9 (PowerPC) using Retro68 + Multiversal Interfaces (pre-Carbon Toolbox only).
+- Builds run **exclusively** on GitHub Actions (`ghcr.io/autc04/retro68`). No local compilation.
+- 100% offline. No network calls of any kind.
+- Data interchange only via standard local `.ics` (iCalendar) files.
+- UI must feel like Apple Calendar transplanted into Platinum:
+  - Same view modes (Day, Week, Month, Year)
+  - Same sidebar with calendar list + checkboxes + mini-month
+  - Same toolbar / view switcher behaviour
+  - Same event creation / editing flow (double-click, inspector-style dialog)
+  - Same keyboard shortcuts where feasible (Cmd-1…4 for views, etc.)
+- Drawing goes directly to the window port (no GWorld double-buffering — nothing animates and classic-Mac memory is limited).
+- Preferences and event data under `System Folder:Preferences`.
+- Follow the sub-agent workflow strictly.
 
-## Technical Guidelines & Constraints
-1. **Target Environment:** Classic Mac OS (System 7–9) targeting PowerPC architectures using the Retro68 toolchain and the classic (pre-Carbon) Mac Toolbox APIs — Multiversal Interfaces do not implement Carbon[cite: 13, 14, 15].
-2. **UI & Theme:** Implement authentic Mac OS 9 Platinum controls (Control Manager buttons/checkboxes, List Manager for tabular data) and Geneva/system typography. Drawing goes directly to each window's own port rather than through an offscreen `GWorld` -- nothing animates, so there's no flicker to double-buffer against, and a GWorld doubles memory pressure in the tiny classic-Mac partition for no benefit here[cite: 13, 14, 15].
-3. **Data Management:** 
-   * Zero external cloud services or network dependencies[cite: 13, 14, 15].
-   * Parse standard `.ics` text files (`VCALENDAR` and `VEVENT` data structures)[cite: 13, 14, 15].
-   * Store and read structured event preferences locally inside `System Folder:Preferences`[cite: 13, 14, 15].
-4. **Core Subsystems:**
-   * **Multi-View Engine:** Switchable Day, Week, Month, and Year view canvases[cite: 13, 14, 15].
-   * **Recurrence Engine:** Local in-memory evaluation of `RRULE` repeat patterns[cite: 13, 14, 15].
-   * **Notifications:** Integration with the Mac OS Notification Manager and Time Manager for background reminders and alerts[cite: 13, 14, 15].
+## Sub-agent Workflow (mandatory)
+1. **Strong model** plans and writes the detailed plan down.
+2. **Weaker models** implement discrete, well-scoped tasks.
+3. **Weaker or stronger models** review each implementation.
+4. **Strong model** performs an overall review of the whole diff before considering the work complete.
 
-## Roadmap
+Every sub-agent task must receive:
+- Exact goal
+- Relevant existing files / code
+- Success criteria
+- List of files that may be touched
 
-Living checklist -- check items off as they land, and add new ones as scope
-is discovered. Update this section whenever a roadmap item is completed or
-a new one is identified, so it stays trustworthy as the single source of
-truth for "what's left."
+## Autonomous Execution Style
+When implementing:
+1. Modify code
+2. `git add .` + `git commit -m "..."`  
+3. `git push`
+4. `gh run watch --exit-status`
+5. On failure → `gh run view --log-failed`, fix, and loop
+
+CI is the only source of truth. Do not run local builds.
+
+## Current Status
 
 ### Done
-- [x] CI build pipeline on Retro68 + Multiversal Interfaces, GitHub Actions only
-- [x] Menu bar: Apple menu, File > Quit, View (Day/Week/Month/Year, Cmd-1..4)
-- [x] Toolbar: Day/Week/Month/Year buttons, centered
-- [x] Sidebar: calendar category list (real checkboxes, from `Calendar::GetCategories()`)
-- [x] Mini-calendar navigator in the sidebar: prev/next month, click a day to jump to Day view
-- [x] Month view: real List Manager grid with day numbers + colored event chips
-- [x] Day view: full date header + event list (List Manager)
-- [x] Week view: 7-day columns with event chips
-- [x] Year view: 4x3 grid of mini-months
-- [x] Window dragging, resizing (grow box + `GrowWindow`/`SizeWindow`), draggable sidebar splitter (iTunes-2-style, clamped min/max width)
-- [x] Launches at 800x600 centered on the screen
-- [x] Preferences persistence: window size/position and sidebar width survive relaunch (`System Folder:Preferences`)
-- [x] Event creation (Month view): double-click a day opens a Dialog Manager form (title, location, category); `LClick`/`LGetSelect` on the month grid's List Manager list detect which day was double-clicked
+- [x] CI pipeline (Retro68 + Multiversal Interfaces, GitHub Actions only)
+- [x] Menu bar (Apple, File > Quit, View Day/Week/Month/Year + Cmd-1..4)
+- [x] Toolbar view switcher
+- [x] Sidebar with real category checkboxes
+- [x] Mini-calendar navigator
+- [x] Month / Day / Week / Year views (basic)
+- [x] Window chrome, splitter, size/position persistence
+- [x] Event creation from Month view (double-click day → dialog)
 
-### Next up (roughly priority order)
-- [ ] **Event creation in Day/Week views, and editing existing events** -- the Month-view dialog only creates new events; there's no way yet to double-click an *existing* event chip to edit it, and Day/Week views have no create-event affordance at all.
-- [ ] **Event deletion** -- `Calendar::RemoveEvent` exists but nothing in the UI calls it.
-- [ ] **iCalendar (.ics) import/export wired to the UI** -- `ICALParser::ParseFile`/`ExportCalendar` exist but are never called; needs File menu items + `StandardFile` (`StandardGetFile`/`StandardPutFile`) open/save dialogs.
-- [ ] **Sidebar checkbox filtering** -- unchecking a calendar category is currently cosmetic only; it should hide that category's events from every view.
-- [ ] **"Today" button** -- jump back to the current date (mockup has one next to the mini-calendar; we only have prev/next month arrows today).
-- [ ] **Recurrence evaluation** -- `RecurrenceEngine::EvaluateRecurrence` exists but nothing expands a stored `RRULE` into the actual repeated instances shown in any view.
-- [ ] **Reminders/Notifications** -- `Calendar::CheckForUpcomingReminders` is an empty stub; needs real Notification Manager + Time Manager integration.
-- [ ] **Find/Search** -- mockup has a magnifying-glass button; no search exists yet.
-- [ ] **Persist actual event data** across launches, not just window chrome -- events are hardcoded fresh in `Calendar::LoadFromPreferences` every run today; real persistence probably means writing/reading `.ics` to/from the Preferences folder, once import/export exists.
+### Next up (priority order — fidelity first)
+1. **Event creation + editing everywhere**  
+   Double-click empty slot or existing event chip in Day / Week / Month to create or edit. Inspector-style dialog matching Apple Calendar fields (title, location, date/time, calendar/category, notes, alert, repeat).
+2. **Event deletion** with confirmation.
+3. **Sidebar filtering that actually works**  
+   Unchecking a calendar must hide its events in every view.
+4. **File → Import… / Export…**  
+   Standard File dialogs + full round-trip `.ics` support.
+5. **Real event persistence** across launches (write/read `.ics` or equivalent in Preferences).
+6. **“Today” button** that jumps to the current date in the active view.
+7. **Recurrence**  
+   Expand `RRULE` so repeating events appear correctly in all views.
+8. **Reminders**  
+   Notification Manager + Time Manager alerts.
+9. **Search** (magnifying glass) if time remains.
+
+## Fidelity Rules (Apple Calendar → Platinum)
+- Layout proportions and information hierarchy should match the classic Apple Calendar as closely as Platinum controls allow.
+- Sidebar on the left, mini-month at bottom of sidebar, view switcher at top.
+- Event chips / blocks use category colours.
+- Double-click / Return to edit, Delete key or menu to remove.
+- No iCloud account UI, no shared calendars, no push notifications from the network.
+- Keyboard shortcuts should mirror Apple Calendar where the Toolbox makes it practical.
+
+## Technical Guidelines
+- Classic (pre-Carbon) Mac Toolbox only.
+- List Manager for grids and lists.
+- Dialog Manager for the event inspector.
+- Standard File Package for Import/Export.
+- Notification Manager + Time Manager for reminders.
+- Keep the partition size reasonable.
+- Stay consistent with the rest of the brunocastello classic suite (creator code style, About box patterns from Gazette / Gateway, etc.).
+
+## Reference Documents
+- `PROJECT.md` / Apple Calendar Clone spec — architecture and original estimates
+- Current source under `src/` and `include/`
+- `Resources/Kalendae.r`
+- Existing `CLAUDE-5.md` roadmap (now superseded by this file)
+
+## Success Criteria
+- A user familiar with Apple Calendar can open Kalendae on Mac OS 9 and immediately understand how to navigate views, create/edit/delete events, filter calendars, and import/export `.ics` files.
+- All core interactions work without network.
+- CI remains green after every change.
+- The app looks and feels like Platinum Apple Calendar, not a generic classic app with a calendar stuck on top.
+
+## Out of Scope
+- Any iCloud / network / CalDAV / Exchange features
+- Carbon or Mac OS X port (future work)
+- Localization
+- Animations or heavy GWorld usage
+- Changing the Platinum visual language
