@@ -388,6 +388,17 @@ Split for implementers:
   moves an event. Copy puts iCalendar text on the desk scrap. Duplicate creates
   an independent event. On a system without the CMM, control-click still works.
 
+### T4b — Sidebar calendar selection (user feedback 2026-10-18; fixes a T4 misreading)
+- In Apple Calendar only the **checkbox** toggles visibility. Clicking a calendar's
+  **name or swatch selects it**: the row is highlighted, and exactly one calendar is
+  always selected (the first one by default).
+  - The selected calendar is the target of **File ▸ Export…**, whose default name is
+    `<Calendar>.ics`, and the default calendar for new events (double-click, ⌘N,
+    Paste Event).
+  - **File ▸ Export All Calendars…** writes everything (default `Kalendae.ics`)
+    for backups.
+- Done together with T7 (both are in `main.cpp`).
+
 ### T7 — Today + navigation (Next-up #6)
 - **Goal**: Follow §0.5. `[<] [Today] [>]` sit at the right end of the
   **content title row**, not in the toolbar. The toolbar becomes `+` (New Event,
@@ -399,7 +410,14 @@ Split for implementers:
   highlighted (`HiliteControl` / value 1), which approximates Apple's segmented control.
   The mini-month matches §0.5 (`<  Month YYYY  >` header, grey adjacent
   days, a red circle for today) and marks the selected date.
-- **Touch**: `src/main.cpp`, `src/ui_renderer.cpp`
+- **Scrolling instead of buttons** (user feedback 2026-10-18): modern Calendar pages
+  through months with the scroll wheel, but Mac OS 9 has no standard wheel events.
+  So `[<] [Today] [>]` are the primary navigation in **every** view, plus these
+  keys: ⌘[ / ⌘], ⌘← / ⌘→, and Page Up / Page Down (Page Up/Down page the time
+  grid only when it has focus — v1: in Day/Week they scroll the grid, in Month/Year
+  they step the period). The mini-month's own `<` `>` move only the mini-month
+  (Apple behaviour). Clicking a mini-month day sets the main date.
+- **Touch**: `src/main.cpp`, `src/ui_renderer.cpp`, `include/ui_renderer.h`
 - **Success**: CI green. Today jumps to the current date in every view. Prev/Next
   step correctly across month/year boundaries.
 
@@ -511,8 +529,8 @@ D1, D2, D4, D6 and D8 were confirmed by the user. D3, D5 and D7 take the recomme
 - [x] T4 filtering (reviewed; fix-up b0dacc5, Home/Work per D8)
 - [x] T5 persistence (reviewed twice; fix-ups f8a01bb, 2c64c6d). Quit/relaunch verified on the target by the user on 2026-10-18.
 - [x] T6 import/export
+- [ ] T4b sidebar selection + T7 today/nav (one task)
 - [ ] T6b contextual menus + event clipboard
-- [ ] T7 today + nav
 - [ ] T8 recurrence
 - [ ] T9 reminders
 - [ ] T10 search (optional)
