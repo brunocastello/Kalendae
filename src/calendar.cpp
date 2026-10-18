@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <set>
 #include <OSUtils.h>
 #include "calendar.h"
 #include "event.h"
@@ -68,26 +69,31 @@ bool Calendar::LoadEventsFromText(const std::string& utf8, long gmtOffsetSeconds
 }
 
 void Calendar::ImportEvents(const std::vector<Event>& events, const std::string& calName,
-                            int* added, int* skipped)
+                            int* added, int* skippedExisting, int* skippedInFile, int* hidden)
 {
-    int nAdded = 0, nSkipped = 0;
+    int nAdded = 0, nExisting = 0, nInFile = 0, nHidden = 0;
+    std::set<std::string> existing;     // UIDs present before the import
+    std::set<std::string> seen;         // UIDs added by this import
+    for (size_t j = 0; j < mEvents.size(); j++)
+        if (!mEvents[j].GetUID().empty())
+            existing.insert(mEvents[j].GetUID());
+
     for (size_t i = 0; i < events.size(); i++)
     {
         Event e(events[i]);
-        bool dup = false;
         if (!e.GetUID().empty())
         {
-            for (size_t j = 0; j < mEvents.size(); j++)
-                if (mEvents[j].GetUID() == e.GetUID())
-                {
-                    dup = true;
-                    break;
-                }
-        }
-        if (dup)
-        {
-            nSkipped++;
-            continue;
+            if (existing.find(e.GetUID()) != existing.end())
+            {
+                nExisting++;
+                continue;
+            }
+            if (seen.find(e.GetUID()) != seen.end())
+            {
+                nInFile++;
+                continue;
+            }
+            seen.insert(e.GetUID());
         }
         if (e.GetCategory().empty())
         {
@@ -101,6 +107,8 @@ void Calendar::ImportEvents(const std::vector<Event>& events, const std::string&
             e.SetCategory(e.GetCategory().substr(0, 63));   // as AddCategory clamps
         if (!e.GetCategory().empty() && mCategories.find(e.GetCategory()) == mCategories.end())
             AddCategory(e.GetCategory(), NextPaletteColor());
+        if (!IsCategoryVisible(e.GetCategory()))
+            nHidden++;
         AddEventInternal(e, false);
         nAdded++;
     }
@@ -108,8 +116,12 @@ void Calendar::ImportEvents(const std::vector<Event>& events, const std::string&
         SortEvents();
     if (added)
         *added = nAdded;
-    if (skipped)
-        *skipped = nSkipped;
+    if (skippedExisting)
+        *skippedExisting = nExisting;
+    if (skippedInFile)
+        *skippedInFile = nInFile;
+    if (hidden)
+        *hidden = nHidden;
 }
 
 std::string Calendar::SerializeEvents(long gmtOffsetSeconds, unsigned long utcNowMacSeconds) const

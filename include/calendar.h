@@ -55,8 +55,10 @@ public:
     // Merges parsed events (File > Import). Events whose non-empty UID is
     // already present are skipped. Category: the event's own, else calName,
     // else the first calendar. Unknown calendars are added (visible).
+    // skippedExisting: UID already in the calendar; skippedInFile: repeated
+    // within the imported file; hidden: added events in unchecked calendars.
     void ImportEvents(const std::vector<Event>& events, const std::string& calName,
-                      int* added, int* skipped);
+                      int* added, int* skippedExisting, int* skippedInFile, int* hidden);
     std::string SerializeEvents(long gmtOffsetSeconds, unsigned long utcNowMacSeconds) const;
 
     // Event management

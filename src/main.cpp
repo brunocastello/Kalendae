@@ -868,6 +868,29 @@ static long GetGMTOffsetSeconds()
 static bool gEventsNoSave = false;
 static bool gSaveFailureShown = false;
 
+// Modal filter for one-button alerts: only keeps the other windows repainting.
+static pascal Boolean AlertUpdateFilterProc(DialogPtr dlg, EventRecord *event, short *itemHit)
+{
+    (void)itemHit;
+    if (event->what == updateEvt && (WindowPtr)event->message != (WindowPtr)dlg)
+    {
+        GrafPtr saved;
+        GetPort(&saved);
+        HandleUpdateEvent(event);
+        SetPort(saved);
+    }
+    return false;
+}
+
+static ModalFilterUPP gAlertUpdateFilterUPP = NULL;
+
+static ModalFilterUPP AlertUpdateFilter()
+{
+    if (!gAlertUpdateFilterUPP)
+        gAlertUpdateFilterUPP = NewModalFilterUPP(AlertUpdateFilterProc);
+    return gAlertUpdateFilterUPP;
+}
+
 // Shows a one-button message alert (ALRT 142; ^0 = text, up to 255 bytes).
 static void ShowMessageAlert(const std::string& text)
 {
@@ -877,7 +900,7 @@ static void ShowMessageAlert(const std::string& text)
     memcpy(&p[1], text.data(), n);
     ParamText(p, "\p", "\p", "\p");
     InitCursor();
-    StopAlert(kMessageAlertID, NULL);
+    StopAlert(kMessageAlertID, AlertUpdateFilter());
     SetPort(gMainWindow);
 }
 
@@ -1790,7 +1813,7 @@ static void ShowNoteAlert(const std::string& text)
     memcpy(&p[1], text.data(), n);
     ParamText(p, "\p", "\p", "\p");
     InitCursor();
-    NoteAlert(kNoteAlertID, NULL);
+    NoteAlert(kNoteAlertID, AlertUpdateFilter());
     SetPort(gMainWindow);
 }
 
@@ -1830,7 +1853,7 @@ static void ImportEvents()
     ICALParser parser;
     std::string calName;
     std::vector<Event> parsed = parser.Parse(text, GetGMTOffsetSeconds(), &calName);
-    text.clear();
+    std::string().swap(text);
 
     if (parsed.empty())
     {
@@ -1840,23 +1863,40 @@ static void ImportEvents()
     }
 
     size_t calendarsBefore = gCalendar->GetCategories().size();
-    int added = 0, skipped = 0;
-    gCalendar->ImportEvents(parsed, calName, &added, &skipped);
+    int added = 0, skipped = 0, dupInFile = 0, hidden = 0;
+    gCalendar->ImportEvents(parsed, calName, &added, &skipped, &dupInFile, &hidden);
 
-    // New calendars need sidebar checkboxes and swatches
+    // New calendars need sidebar checkboxes and swatches; the labels are
+    // drawn in the update, so the whole window is redrawn.
     if (gCalendar->GetCategories().size() != calendarsBefore)
         RebuildControls();
     RefreshAfterEdit();
+    SetPort(gMainWindow);
+    InvalRect(&gMainWindow->portRect);
 
     char buf[16];
     snprintf(buf, sizeof(buf), "%d", added);
     std::string msg = std::string("Imported ") + buf + (added == 1 ? " event." : " events.");
+    if (hidden > 0)
+    {
+        snprintf(buf, sizeof(buf), "%d", hidden);
+        msg += std::string(" ") + buf + (hidden == 1 ? " of them is" : " of them are") +
+               " in hidden calendars.";
+    }
     if (skipped > 0)
     {
         snprintf(buf, sizeof(buf), "%d", skipped);
         msg += std::string(" ") + buf + (skipped == 1 ? " event was" : " events were") +
                " already in Kalendae and " + (skipped == 1 ? "was" : "were") + " skipped.";
     }
+    if (dupInFile > 0)
+    {
+        snprintf(buf, sizeof(buf), "%d", dupInFile);
+        msg += std::string(" ") + buf + (dupInFile == 1 ? " duplicate event" : " duplicate events") +
+               " in the file " + (dupInFile == 1 ? "was" : "were") + " skipped.";
+    }
+    if (gEventsNoSave && added > 0)
+        msg += " They won\325t be saved in this session. Use File \245 Export\311 to keep a copy.";
     ShowNoteAlert(msg);
 }
 

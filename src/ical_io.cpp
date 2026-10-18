@@ -49,12 +49,6 @@ static OSErr WriteNewFile(const FSSpec& tempIn, const std::string& data, OSType 
 {
     FSSpec temp = tempIn;
     OSErr err = FSpCreate(&temp, creator, type, smSystemScript);
-    if (err == dupFNErr)
-    {
-        // Leftover from an interrupted save
-        FSpDelete(&temp);
-        err = FSpCreate(&temp, creator, type, smSystemScript);
-    }
     if (err != noErr)
         return err;
 
@@ -84,14 +78,31 @@ static OSErr WriteNewFile(const FSSpec& tempIn, const std::string& data, OSType 
 OSErr WriteStringToFile(const FSSpec& specIn, const std::string& data, OSType type, OSType creator)
 {
     FSSpec spec = specIn;
-    // Temp sibling "<name>~", clamped to the 31-character HFS limit
+    // Temp sibling "<name>~" (then "<name>~1".."~9"), clamped to the
+    // 31-character HFS limit. Never one that exists or equals the target, so
+    // an unrelated file is never overwritten or deleted.
     FSSpec temp = spec;
-    unsigned char len = spec.name[0];
-    if (len > 30)
-        len = 30;
-    memcpy(&temp.name[1], &spec.name[1], len);
-    temp.name[len + 1] = '~';
-    temp.name[0] = (unsigned char)(len + 1);
+    bool found = false;
+    for (int attempt = 0; attempt <= 9 && !found; attempt++)
+    {
+        unsigned char suffixLen = (unsigned char)(attempt == 0 ? 1 : 2);
+        unsigned char len = spec.name[0];
+        if (len > 31 - suffixLen)
+            len = (unsigned char)(31 - suffixLen);
+        memcpy(&temp.name[1], &spec.name[1], len);
+        temp.name[len + 1] = '~';
+        if (attempt > 0)
+            temp.name[len + 2] = (unsigned char)('0' + attempt);
+        temp.name[0] = (unsigned char)(len + suffixLen);
+
+        if (temp.name[0] == spec.name[0] && memcmp(&temp.name[1], &spec.name[1], temp.name[0]) == 0)
+            continue;
+        FSSpec probeTemp;
+        if (FSMakeFSSpec(spec.vRefNum, spec.parID, temp.name, &probeTemp) == fnfErr)
+            found = true;
+    }
+    if (!found)
+        return dupFNErr;
 
     OSErr err = WriteNewFile(temp, data, type, creator);
     if (err != noErr)
