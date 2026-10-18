@@ -399,6 +399,40 @@ Split for implementers:
     for backups.
 - Done together with T7 (both are in `main.cpp`).
 
+### T4c — Calendar management: New Calendar, rename, colour, delete (user feedback 2026-10-18)
+Apple's File menu (user screenshot) has: New Event or Reminder ⌘N · New Calendar ⌥⌘N ·
+New Family Calendar… · New Calendar Subscription… ⌥⌘S · New Holiday Calendar… · — ·
+Import… · Export ▸ · Close ⌘W · — · Print… ⌘P. Creating or editing a calendar also
+sets its colour.
+- **In scope**:
+  - **File ▸ New Calendar**: classic menus can't show ⌥⌘N, so the item shows no glyph,
+    but ⌥⌘N is handled in keyDown. It adds an "Untitled" calendar (numbered
+    "Untitled 2", … on name clash) with the next palette colour, visible, selects it,
+    and opens the Calendar Info dialog straight away so it can be named.
+  - **Calendar Info dialog** (sidebar double-click on a name, or the sidebar contextual
+    menu ▸ Get Info):
+    - Name EditText. Renaming also rewrites the category of every event in that
+      calendar (`Calendar::RenameCategory`, which marks both events and prefs dirty).
+      Duplicate or empty names are refused with an alert.
+    - Colour popup: Red, Orange, Yellow, Green, Blue, Purple, Brown (the Apple
+      palette already in `calendar.cpp`), then —, then **Other…**, which opens the
+      Color Picker (`GetColor`). Next to it, a user item shows a swatch of the current colour.
+  - **Delete Calendar** (contextual menu, or Edit ▸ Delete when the sidebar has focus,
+    v1: contextual menu only): a confirmation alert "Are you sure you want to delete
+    the calendar “^0”? All of its N events will be deleted." with [Cancel] [Delete].
+    The last remaining calendar can't be deleted (the item is disabled).
+  - **Sidebar contextual menu** on a calendar row, done with T6b: Get Info · Colour ▸
+    (the palette, with the current one checked) · — · Delete.
+- **Out of scope**: Family, Subscription and Holiday calendars (need the network or
+  accounts); Close ⌘W (single-window app); **Print… ⌘P** is a possible later task
+  (Printing Manager is classic Toolbox), not planned yet.
+- **Touch**: `src/main.cpp`, `src/calendar.cpp`/`include/calendar.h`,
+  `Resources/Kalendae.r` (DLOG/DITL for Calendar Info, ALRT for delete), possibly a new
+  `src/calendar_dialog.cpp`/`include/calendar_dialog.h` (+ `CMakeLists.txt`)
+- **Success**: CI green. Create, rename, recolour (palette and Other…) and delete calendars;
+  events follow renames; everything persists across relaunch; sidebar and mini-month
+  stay laid out correctly as the calendar count changes.
+
 ### T7 — Today + navigation (Next-up #6)
 - **Goal**: Follow §0.5. `[<] [Today] [>]` sit at the right end of the
   **content title row**, not in the toolbar. The toolbar becomes `+` (New Event,
@@ -528,9 +562,10 @@ D1, D2, D4, D6 and D8 were confirmed by the user. D3, D5 and D7 take the recomme
 - [x] T3 delete (reviewed; fix-up 3aea0a9)
 - [x] T4 filtering (reviewed; fix-up b0dacc5, Home/Work per D8)
 - [x] T5 persistence (reviewed twice; fix-ups f8a01bb, 2c64c6d). Quit/relaunch verified on the target by the user on 2026-10-18.
-- [x] T6 import/export
-- [ ] T4b sidebar selection + T7 today/nav (one task)
-- [ ] T6b contextual menus + event clipboard
+- [x] T6 import/export (import verified on the target by the user on 2026-10-18)
+- [x] T4b sidebar selection + T7 today/nav (one task)
+- [ ] T4c calendar management (new/rename/colour/delete)
+- [ ] T6b contextual menus + event clipboard (+ sidebar row menu for T4c)
 - [ ] T8 recurrence
 - [ ] T9 reminders
 - [ ] T10 search (optional)
