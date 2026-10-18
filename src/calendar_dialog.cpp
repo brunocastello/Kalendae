@@ -48,11 +48,6 @@ static const unsigned char kPalette[kPaletteCount][3] = {
     {0, 122, 255}, {175, 82, 222}, {162, 132, 94}
 };
 
-// Multiversal has no declaration for the Color Picker Package's GetColor, so
-// declare it here; InterfaceLib exports the routine.
-extern "C" pascal Boolean GetColor(Point where, ConstStr255Param prompt,
-                                   const RGBColor *inColor, RGBColor *outColor);
-
 // Created once (POD statics; no global constructors on this toolchain).
 static ModalFilterUPP sFilterUPP = NULL;
 static UserItemUPP sSwatchUPP = NULL;
@@ -289,7 +284,9 @@ static bool ChooseOtherColor(DialogPtr dlg, ControlHandle popup)
     where.v = 0;        // (0,0): the picker centres itself
 
     InitCursor();
-    Boolean ok = GetColor(where, "\pChoose a calendar color:", &in, &out);
+    Str255 prompt;
+    ToPascal("Choose a calendar color:", prompt);
+    Boolean ok = GetColor(where, prompt, &in, &out);   // declared in Quickdraw.h
     SetPort(dlg);
     if (!ok)
         return false;
