@@ -285,7 +285,7 @@ static void FlashItem(DialogPtr dlg, short item)
     ControlHandle c = GetItemControl(dlg, item);
     if (!c)
         return;
-    unsigned long ignored;
+    long ignored;
     HiliteControl(c, 1);
     Delay(8, &ignored);
     HiliteControl(c, 0);
