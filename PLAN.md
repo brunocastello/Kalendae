@@ -449,8 +449,10 @@ sets its colour.
   So `[<] [Today] [>]` are the primary navigation in **every** view, plus these
   keys: ⌘[ / ⌘], ⌘← / ⌘→, and Page Up / Page Down (Page Up/Down page the time
   grid only when it has focus — v1: in Day/Week they scroll the grid, in Month/Year
-  they step the period). The mini-month's own `<` `>` move only the mini-month
-  (Apple behaviour). Clicking a mini-month day sets the main date.
+  they step the period). The mini-month's own `<` `>` move only the mini-month.
+  Clicking a mini-month day sets the main date. **The main navigation
+  (`[<]`, Today, `[>]`, and their keys) never moves the mini-month** (user test
+  feedback 2026-10-18). The mini-month changes only through its own arrows.
 - **Touch**: `src/main.cpp`, `src/ui_renderer.cpp`, `include/ui_renderer.h`
 - **Success**: CI green. Today jumps to the current date in every view. Prev/Next
   step correctly across month/year boundaries.
