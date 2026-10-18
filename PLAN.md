@@ -301,6 +301,21 @@ Split for implementers:
   is CRLF with 75-octet folding. Remove the sample events. Load at
   startup and save when dirty or on quit. Add a prefs `version` field plus the visibility
   bitmask and the last view.
+- **Refinements (2026-10-18, these replace the bitmask idea above)**:
+  - **Encoding**: `.ics` text is UTF-8. The model is MacRoman. The parser
+    converts both ways with a 128-entry table. Unmappable code points become
+    `?`. Folding never splits a UTF-8 sequence.
+  - **Calendars live in prefs**: the prefs file is versioned (`short version = 2`)
+    and stores, after the window fields, the last view and a list of calendars
+    (name, RGB, visible). Visibility toggles mark the *prefs* dirty, not the
+    events (T1 review #3). If an event loads with an unknown category, the
+    calendar is auto-added with the next palette colour (D2). A v1 prefs file
+    keeps its window fields and takes defaults for everything else.
+  - **Saving**: the main loop saves events when `IsDirty()` is set and prefs
+    when `IsPrefsDirty()` is set, after each handled event and on Quit.
+    `ClearDirty()` runs after load.
+  - **Testability**: `ICALParser` makes no Toolbox calls. The GMT offset is passed
+    in, so the parser can be compiled on the host for review.
 - **Touch**: `include/ical_parser.h`, `src/ical_parser.cpp`, `include/ical_io.h`,
   `src/ical_io.cpp`, `src/calendar.cpp`, `include/calendar.h`, `src/main.cpp`,
   `CMakeLists.txt`
