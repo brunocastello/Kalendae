@@ -10,8 +10,6 @@
 
 #include "Processes.r"
 #include "Dialogs.r"
-#include "Controls.r"
-#include "ControlDefinitions.r"
 
 resource 'SIZE' (-1) {
     reserved,
@@ -106,38 +104,22 @@ resource 'DITL' (128) {
     }
 };
 
-/* Popup controls: fixed width (1008 + 1), no title, min = MENU id. */
-resource 'CNTL' (129) {
-    {0, 0, 20, 176},
-    0,
-    visible,
-    0,
-    200,
-    1009,
-    0,
-    ""
+/*
+ * Popup controls, as raw data: this toolchain's RIncludes have no 'CNTL'
+ * type. Layout: rect {0,0,20,176}, value 0 (no title), visible, max 0,
+ * min = MENU id (200/201/202), procID 1009 (popupMenuProc + fixed width),
+ * refCon 0, title "".
+ */
+data 'CNTL' (129) {
+    $"0000 0000 0014 00B0 0000 0100 0000 00C8 03F1 0000 0000 00"
 };
 
-resource 'CNTL' (130) {
-    {0, 0, 20, 176},
-    0,
-    visible,
-    0,
-    201,
-    1009,
-    0,
-    ""
+data 'CNTL' (130) {
+    $"0000 0000 0014 00B0 0000 0100 0000 00C9 03F1 0000 0000 00"
 };
 
-resource 'CNTL' (131) {
-    {0, 0, 20, 176},
-    0,
-    visible,
-    0,
-    202,
-    1009,
-    0,
-    ""
+data 'CNTL' (131) {
+    $"0000 0000 0014 00B0 0000 0100 0000 00CA 03F1 0000 0000 00"
 };
 
 /* "Invalid input" alert: ParamText(^0 = message) */
