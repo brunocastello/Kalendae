@@ -50,7 +50,7 @@ enum
 {
     kConfirmDeleteAlertID = 129,
     kConfirmRecurringAlertID = 130,
-    kMaxAlertTitle = 60
+    kMaxAlertTitle = 40
 };
 
 enum
@@ -720,19 +720,43 @@ static void SelectEvent(unsigned long id, const Date& date)
 }
 
 // Esc and Cmd-. cancel (item 2); Return/Enter take the default (item 1).
+static void FlashAlertButton(DialogPtr dlg, short item)
+{
+    short type;
+    Handle h;
+    Rect r;
+    GetDialogItem(dlg, item, &type, &h, &r);
+    if (!h)
+        return;
+    long ignored;
+    HiliteControl((ControlHandle)h, 1);
+    Delay(8, &ignored);
+    HiliteControl((ControlHandle)h, 0);
+}
+
 static pascal Boolean ConfirmFilter(DialogPtr dlg, EventRecord *event, short *itemHit)
 {
-    (void)dlg;
+    // Keep the main window repainting while the alert is up.
+    if (event->what == updateEvt && (WindowPtr)event->message != (WindowPtr)dlg)
+    {
+        GrafPtr saved;
+        GetPort(&saved);
+        HandleUpdateEvent(event);
+        SetPort(saved);
+        return false;
+    }
     if (event->what == keyDown)
     {
         char ch = (char)(event->message & charCodeMask);
         if (ch == 0x1B || ((event->modifiers & cmdKey) && ch == '.'))
         {
+            FlashAlertButton(dlg, 2);
             *itemHit = 2;
             return true;
         }
         if (ch == 0x0D || ch == 0x03)
         {
+            FlashAlertButton(dlg, 1);
             *itemHit = 1;
             return true;
         }
@@ -771,12 +795,12 @@ static bool ConfirmAndDeleteEvent(unsigned long id, const Date& occurrenceDate)
                               gConfirmFilterUPP);
     SetPort(gMainWindow);
 
-    if (item == 2)
-        return false;
     if (recurring && item == 1)
         gCalendar->AddExDate(id, occurrenceDate);
-    else
+    else if ((recurring && item == 3) || (!recurring && item == 1))
         gCalendar->RemoveEvent(id);
+    else
+        return false;
 
     SelectEvent(0, Date());
     RefreshAfterEdit();
@@ -925,8 +949,12 @@ static void EditSelectedEvent()
     HitRegion h;
     Rect content = ContentBounds();
     Rect visible;
-    if (gUIRenderer->FindHitForEvent(id, &h) && SectRect(&h.r, &content, &visible))
-        anchor = h.r;
+    if (gUIRenderer->FindHitForEvent(id, Date(gSelYear, gSelMonth, gSelDay), &h))
+    {
+        SelectEvent(id, h.date);
+        if (SectRect(&h.r, &content, &visible))
+            anchor = h.r;
+    }
     EditEventWithID(id, anchor);
 }
 
@@ -1226,6 +1254,9 @@ static void HandleMenuChoice(long menuChoice)
     short menuID = (short)(menuChoice >> 16);
     short menuItem = (short)(menuChoice & 0xFFFF);
 
+    // Un-invert the title first: commands may put up an alert or popover.
+    HiliteMenu(0);
+
     switch (menuID)
     {
         case kFileMenuID:
@@ -1274,8 +1305,6 @@ static void HandleMenuChoice(long menuChoice)
         default:
             break;
     }
-
-    HiliteMenu(0);
 }
 
 static void HandleUpdateEvent(EventRecord *event)

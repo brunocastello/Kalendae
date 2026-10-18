@@ -148,19 +148,19 @@ resource 'ALRT' (140) {
 /* Delete confirmation: ParamText(^0 = title). Delete (default) / Cancel. */
 resource 'DITL' (129) {
     {
-        {74, 258, 94, 324},
+        {86, 258, 106, 324},
         Button { enabled, "Delete" };
 
-        {74, 180, 94, 246},
+        {86, 180, 106, 246},
         Button { enabled, "Cancel" };
 
-        {12, 70, 62, 324},
+        {12, 70, 76, 324},
         StaticText { disabled, "Are you sure you want to delete \322^0\323?" };
     }
 };
 
 resource 'ALRT' (129) {
-    {80, 100, 184, 440},
+    {80, 100, 196, 440},
     129,
     {
         OK, visible, silent,
@@ -174,22 +174,22 @@ resource 'ALRT' (129) {
 /* Recurring delete: Only This Event (default) / Cancel / Delete All */
 resource 'DITL' (130) {
     {
-        {80, 250, 100, 410},
+        {92, 252, 112, 440},
         Button { enabled, "Delete Only This Event" };
 
-        {80, 170, 100, 238},
+        {92, 166, 112, 244},
         Button { enabled, "Cancel" };
 
-        {80, 80, 100, 158},
+        {92, 70, 112, 158},
         Button { enabled, "Delete All" };
 
-        {12, 70, 68, 410},
+        {12, 70, 76, 440},
         StaticText { disabled, "Do you want to delete all occurrences of \322^0\323, or only this occurrence?" };
     }
 };
 
 resource 'ALRT' (130) {
-    {80, 60, 190, 480},
+    {80, 60, 206, 510},
     130,
     {
         OK, visible, silent,

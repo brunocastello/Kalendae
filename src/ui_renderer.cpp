@@ -249,20 +249,29 @@ bool UIRenderer::HitTest(Point local, HitRegion* out) const
     return false;
 }
 
-bool UIRenderer::FindHitForEvent(unsigned long id, HitRegion* out) const
+// Prefers the hit on `preferred` (recurring events have several); else the first.
+bool UIRenderer::FindHitForEvent(unsigned long id, const Date& preferred, HitRegion* out) const
 {
     if (id == 0)
         return false;
+    int first = -1;
     for (size_t i = 0; i < mHits.size(); i++)
     {
-        if (mHits[i].eventID == id)
+        if (mHits[i].eventID != id)
+            continue;
+        if (first < 0)
+            first = (int)i;
+        if (mHits[i].date == preferred)
         {
-            if (out)
-                *out = mHits[i];
-            return true;
+            first = (int)i;
+            break;
         }
     }
-    return false;
+    if (first < 0)
+        return false;
+    if (out)
+        *out = mHits[first];
+    return true;
 }
 
 // ---------------------------------------------------------------- Month
