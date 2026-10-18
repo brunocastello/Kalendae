@@ -1978,7 +1978,7 @@ static void DrawMiniCalendar()
             memcpy(&pstr[1], kMonthNames[gMiniMonth - 1], len);
         }
         if (avail > 0 && StringWidth(pstr) > avail)
-            TruncString(avail, pstr, truncEnd);
+            TruncString(avail, pstr, 0);
         if (avail > 0)
         {
             MoveTo((gapLeft + gapRight) / 2 - StringWidth(pstr) / 2, top + 12);
