@@ -338,7 +338,7 @@ D1, D2, D4 and D6 were confirmed by the user. D3, D5 and D7 take the recommendat
 
 - [x] D1–D7 answered
 - [x] T0 hotfix
-- [ ] T1 foundation
+- [x] T1 foundation
 - [ ] T2a renderer / T2b inspector / T2c wiring
 - [ ] T3 delete
 - [ ] T4 filtering
