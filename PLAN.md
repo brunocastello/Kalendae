@@ -28,6 +28,33 @@ These shape the task order. Every claim was checked against the source.
 
 ---
 
+## 0.5 Visual baseline (modern Apple Calendar, user screenshot 2026-10-18)
+
+This is the reference for every view. Platinum replaces Aqua materials, but the
+layout and hierarchy follow it.
+
+- **Toolbar**: `+` (new event) on the left; Day | Week | Month | Year segmented
+  control centred; 🔍 search on the right. The toolbar does not hold navigation.
+- **Content title row**: bold month name then the year in plain text, both
+  large and left-aligned ("**October** 2026"). Right-aligned on the same row are
+  `[<] [Today] [>]`.
+- **Month grid**: always 6 weeks.
+  - Weekday names ("Sun".."Sat") are right-aligned over each column. Day numbers
+    sit at the top-right of each cell, and the first of a month reads "1 Oct".
+    Adjacent-month days are grey numbers on the same background.
+  - Today is a white number on a red filled circle.
+  - There are thin column and week lines only.
+- **Chips**:
+  - A timed event is a thin vertical bar in the calendar colour, then the title.
+  - An all-day event is a rounded bar tinted with the calendar colour.
+  - Titles are truncated with "…", and overflow reads "+N more".
+- **Sidebar**: one group header, with checkbox rows in the calendar colour
+  underneath. Apple's local group is "On My Mac", which we use in place of iCloud.
+  Below them is the mini-month: a `<  October 2026  >` header, S M T W T F S,
+  grey adjacent-month days, and a red circle for today.
+
+---
+
 ## 1. Architecture changes (shared by all tasks)
 
 ### 1.1 Data model (`include/event.h`, `src/event.cpp`)
@@ -249,7 +276,9 @@ Split for implementers:
   `SetupSidebar` initialises each checkbox from `IsCategoryVisible` (fixes
   F5 reset-on-resize). Hidden categories are excluded by the occurrence
   queries, so every view inherits this for free. A colour swatch
-  is drawn next to each checkbox (Apple's calendar-colour square).
+  is drawn next to each checkbox (Apple's calendar-colour square; Platinum
+  checkboxes can't be tinted). The list gets an "On My Mac" group header
+  (§0.5).
 - **Touch**: `src/main.cpp`, `src/calendar.cpp` (if needed)
 - **Success**: CI green. Unchecking hides that calendar's events in all four views,
   and the state survives a window resize and a splitter drag.
@@ -291,13 +320,16 @@ Split for implementers:
   supplies 3 fixtures in the task prompt).
 
 ### T7 — Today + navigation (Next-up #6)
-- **Goal**: Apple's toolbar is `[◀] [Today] [▶]` on the right and the
-  Day/Week/Month/Year segmented buttons centred. Add those push buttons
+- **Goal**: Follow §0.5. `[<] [Today] [>]` sit at the right end of the
+  **content title row**, not in the toolbar. The toolbar becomes `+` (New Event,
+  same as ⌘N) on the left, the Day/Week/Month/Year buttons centred, and a search
+  button on the right (disabled until T10). Add the push buttons
   (refCons `kTodayRefCon`, `kPrevPeriodRefCon`, `kNextPeriodRefCon`). Prev/Next
   step by the active view's unit (day/week/month/year). Bind View ▸ Go to Today
   ⌘T and Previous/Next ⌘[ / ⌘]. The active view's toolbar button is drawn
   highlighted (`HiliteControl` / value 1), which approximates Apple's segmented control.
-  The mini-month marks today and the selected date.
+  The mini-month matches §0.5 (`<  Month YYYY  >` header, grey adjacent
+  days, a red circle for today) and marks the selected date.
 - **Touch**: `src/main.cpp`, `src/ui_renderer.cpp`
 - **Success**: CI green. Today jumps to the current date in every view. Prev/Next
   step correctly across month/year boundaries.
