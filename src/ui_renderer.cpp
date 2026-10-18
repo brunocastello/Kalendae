@@ -166,15 +166,27 @@ static void FormatTime(short minute, char* out, size_t outSize)
         snprintf(out, outSize, "%d:%02d %s", h12, m, ampm);
 }
 
-static void DrawTitle(short x, short baseline, const char* bold1, const char* plain)
+// Bold month + plain year, fitted to maxWidth: the month alone if both don't
+// fit, then the month truncated with an ellipsis.
+static void DrawTitle(short x, short baseline, short maxWidth, const char* bold1, const char* plain)
 {
     TextFont(0);
     TextSize(18);
     TextFace(bold);
-    MoveTo(x, baseline);
-    DrawCString(bold1);
+    short w1 = CStringWidth(bold1);
     TextFace(normal);
-    DrawCString(plain);
+    short w2 = CStringWidth(plain);
+    TextFace(bold);
+    if (w1 + w2 <= maxWidth)
+    {
+        MoveTo(x, baseline);
+        DrawCString(bold1);
+        TextFace(normal);
+        DrawCString(plain);
+        return;
+    }
+    DrawFitted(bold1, x, baseline, maxWidth);
+    TextFace(normal);
 }
 
 // Draws a day-number label with Apple's red "today" circle. right is the
@@ -299,7 +311,7 @@ void UIRenderer::RenderMonthView(const Calendar& calendar, const Rect& bounds)
 
     char yearBuf[16];
     snprintf(yearBuf, sizeof(yearBuf), " %d", cur.year);
-    DrawTitle(bounds.left + 10, bounds.top + 24, kMonthNames[cur.month - 1], yearBuf);
+    DrawTitle(bounds.left + 10, bounds.top + 24, (short)(bounds.right - bounds.left - 10 - kTitleNavReserve), kMonthNames[cur.month - 1], yearBuf);
 
     // Weekday row: right-aligned like the day numbers, one rule beneath.
     short gridTop = bounds.top + 49;
@@ -470,8 +482,8 @@ void UIRenderer::RenderYearView(const Calendar& calendar, const Rect& bounds)
     TextFace(bold);
     char titleBuf[8];
     snprintf(titleBuf, sizeof(titleBuf), "%d", year);
-    MoveTo(bounds.left + 10, bounds.top + 26);
-    DrawCString(titleBuf);
+    DrawFitted(titleBuf, bounds.left + 10, bounds.top + 26,
+               (short)(bounds.right - bounds.left - 10 - kTitleNavReserve));
     TextFace(normal);
 
     const int cols = 4;
@@ -710,7 +722,7 @@ void UIRenderer::RenderTimeGrid(const Calendar& calendar, const Rect& bounds, bo
     {
         char yearBuf[16];
         snprintf(yearBuf, sizeof(yearBuf), " %d", cur.year);
-        DrawTitle(bounds.left + 10, bounds.top + 22, kMonthNames[cur.month - 1], yearBuf);
+        DrawTitle(bounds.left + 10, bounds.top + 22, (short)(bounds.right - bounds.left - 10 - kTitleNavReserve), kMonthNames[cur.month - 1], yearBuf);
 
         TextFont(kGenevaFont);
         TextSize(10);

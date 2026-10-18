@@ -77,7 +77,7 @@ public:
 
     static const short kHourHeight = 22;
     static const short kTitleRowHeight = 36;
-    static const short kTitleNavReserve = 150;
+    static const short kTitleNavReserve = 124;   // 104 of buttons + 10 margin + 10 gap
 
 private:
     void RenderTimeGrid(const Calendar& calendar, const Rect& bounds, bool weekMode);

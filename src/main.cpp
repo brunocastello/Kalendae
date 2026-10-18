@@ -361,16 +361,48 @@ static void SetupToolbar()
     short totalWidth = 4 * buttonWidth + 3 * gap;
     short startX = (windowWidth - totalWidth) / 2;
 
-    MakeButton(10, top, 24, buttonHeight, "+", kNewEventRefCon);
+    const short plusRight = 10 + 24;
+    short searchLeft = windowWidth - 10 - 64;
+    bool showSearch = true;
 
-    for (int i = 0; i < 4; i++)
-        MakeButton(startX + i * (buttonWidth + gap), top, buttonWidth, buttonHeight,
-                   labels[i], (long)views[i]);
+    // At narrow widths the centred group would run into [+] or Search:
+    // shrink the buttons and gaps (min 44 / 3) and centre in the free space,
+    // and drop the Search placeholder if even that doesn't fit.
+    if (startX < plusRight + 8 || startX + totalWidth > searchLeft - 8)
+    {
+        short lo = plusRight + 8;
+        short hi = searchLeft - 8;
+        if (hi - lo < 4 * 44 + 3 * 3)
+        {
+            showSearch = false;
+            hi = windowWidth - 10;
+        }
+        short gap2 = 3;
+        short bw = (hi - lo - 3 * gap2) / 4;
+        if (bw > buttonWidth) bw = buttonWidth;
+        if (bw < 44) bw = 44;
+        short total2 = 4 * bw + 3 * gap2;
+        startX = lo + (hi - lo - total2) / 2;
+        if (startX < lo) startX = lo;
+        MakeButton(10, top, 24, buttonHeight, "+", kNewEventRefCon);
+        for (int i = 0; i < 4; i++)
+            MakeButton(startX + i * (bw + gap2), top, bw, buttonHeight, labels[i], (long)views[i]);
+    }
+    else
+    {
+        MakeButton(10, top, 24, buttonHeight, "+", kNewEventRefCon);
+        for (int i = 0; i < 4; i++)
+            MakeButton(startX + i * (buttonWidth + gap), top, buttonWidth, buttonHeight,
+                       labels[i], (long)views[i]);
+    }
 
-    ControlHandle search = MakeButton(windowWidth - 10 - 64, top, 64, buttonHeight,
-                                      "Search", kSearchRefCon);
-    if (search)
-        HiliteControl(search, 255);     // placeholder until search exists
+    if (showSearch)
+    {
+        ControlHandle search = MakeButton(searchLeft, top, 64, buttonHeight,
+                                          "Search", kSearchRefCon);
+        if (search)
+            HiliteControl(search, 255);     // placeholder until search exists
+    }
 
     UpdateToolbarHilite();
 }
@@ -1378,6 +1410,24 @@ static void EditEventWithID(unsigned long id, const Rect& anchorLocal)
     RefreshAfterEdit();
 }
 
+static void SetCategoryVisibleByIndex(int index, bool visible);
+static bool CategoryAtIndex(int index, std::string& name, ColorRGB& color);
+
+// A new event in an unchecked calendar would vanish; Apple shows the calendar.
+static void EnsureCategoryVisible(const std::string& name)
+{
+    if (gCalendar->IsCategoryVisible(name))
+        return;
+    std::string n;
+    ColorRGB c;
+    for (int i = 0; CategoryAtIndex(i, n, c); i++)
+        if (n == name)
+        {
+            SetCategoryVisibleByIndex(i, true);
+            return;
+        }
+}
+
 static void CreateEventWithInspector(Event& e, const Rect& anchorLocal)
 {
     Rect anchor;
@@ -1388,6 +1438,7 @@ static void CreateEventWithInspector(Event& e, const Rect& anchorLocal)
     if (result == kInspectorSaved)
     {
         unsigned long id = gCalendar->AddEvent(e);
+        EnsureCategoryVisible(e.GetCategory());
         SelectEvent(id, e.GetStartTime());
         RefreshAfterEdit();
     }
@@ -1799,7 +1850,11 @@ static void ChangeMiniMonth(int delta)
 // Sets the main view's date; the mini-month follows it.
 static void GoToDate(const Date& date)
 {
+    bool changed = !(gCalendar->GetCurrentDate() == date);
     gCalendar->SetCurrentDate(date);
+    // The selected event may now be off screen; Return/Delete must not act on it.
+    if (changed)
+        SelectEvent(0, Date());
     gMiniYear = (short)date.year;
     gMiniMonth = (short)date.month;
     SyncTimeGridScrollBar();
@@ -1906,9 +1961,30 @@ static void DrawMiniCalendar()
 
     TextSize(10);
     TextFace(bold);
-    char titleBuf[32];
-    snprintf(titleBuf, sizeof(titleBuf), "%s %d", kMonthNames[gMiniMonth - 1], gMiniYear);
-    DrawCStringCentered(titleBuf, gSidebarWidth / 2, top + 12);
+    {
+        // Fitted between the inner edges of the < and > buttons, centred in the gap.
+        short gapLeft = 35 + 2, gapRight = gSidebarWidth - 30 - 2;
+        short avail = gapRight - gapLeft;
+        char titleBuf[32];
+        snprintf(titleBuf, sizeof(titleBuf), "%s %d", kMonthNames[gMiniMonth - 1], gMiniYear);
+        unsigned char pstr[256];
+        size_t len = strlen(titleBuf);
+        pstr[0] = (unsigned char)len;
+        memcpy(&pstr[1], titleBuf, len);
+        if (StringWidth(pstr) > avail)
+        {
+            len = strlen(kMonthNames[gMiniMonth - 1]);
+            pstr[0] = (unsigned char)len;
+            memcpy(&pstr[1], kMonthNames[gMiniMonth - 1], len);
+        }
+        if (avail > 0 && StringWidth(pstr) > avail)
+            TruncString(avail, pstr, truncEnd);
+        if (avail > 0)
+        {
+            MoveTo((gapLeft + gapRight) / 2 - StringWidth(pstr) / 2, top + 12);
+            DrawString(pstr);
+        }
+    }
     TextFace(normal);
 
     for (int i = 0; i < 7; i++)
@@ -2218,6 +2294,7 @@ static void UpdateExportMenuItem()
     p[0] = (unsigned char)t.size();
     memcpy(&p[1], t.data(), t.size());
     SetMenuItemText(gExportMenu, kExportSelectedItem, p);
+    CalcMenuSize(gExportMenu);
 }
 
 static void UpdateMenuStates()
