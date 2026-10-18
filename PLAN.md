@@ -265,9 +265,10 @@ Split for implementers:
   Delete Event, and the inspector's Delete button all go through
   `ConfirmAndDeleteEvent(id, occurrenceDate)`. The confirmation is a `CautionAlert`
   (ALRT/DITL 129): *"Are you sure you want to delete this event?"* with
-  [Cancel] [Delete]. For a recurring event, use ALRT 130 instead: *"Do you want to delete
+  [Cancel] [Delete], where **Delete is the default**, as in Apple. For a recurring event, use ALRT 130 instead: *"Do you want to delete
   all occurrences of this event, or only the selected occurrence?"* with
-  [Cancel] [Delete All] [Delete Only This Event]. "Only this" adds an EXDATE.
+  [Delete All] [Cancel] [Delete Only This Event], where "Only this" is the default. "Only this" adds an EXDATE.
+  Unexpected alert results (including -1 when the ALRT fails to load) never delete.
   Menu items are enabled/disabled from the selection state
   (`EnableItem`/`DisableItem` before `MenuSelect`/`MenuKey`).
 - **Touch**: `src/main.cpp`, `Resources/Kalendae.r`, `src/event_dialog.cpp`
@@ -435,7 +436,7 @@ D1, D2, D4 and D6 were confirmed by the user. D3, D5 and D7 take the recommendat
 - [x] T1 foundation (reviewed 2026-10-18, no blockers)
 - [x] T2a renderer (fix-up 4f5a965) / T2b inspector popover / T2c wiring (merged into T2b; fix-up 55c5cf5), reviewed. Awaiting on-screen test by the user.
 - [ ] T2d popover tail (custom WDEF, polish)
-- [x] T3 delete
+- [x] T3 delete (reviewed; fix-up 3aea0a9)
 - [ ] T4 filtering
 - [ ] T5 persistence
 - [ ] T6 import/export
