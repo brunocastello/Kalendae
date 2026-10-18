@@ -51,6 +51,8 @@ enum
 {
     kConfirmDeleteAlertID = 129,
     kConfirmRecurringAlertID = 130,
+    kQuitSaveFailedAlertID = 141,
+    kMessageAlertID = 142,
     kMaxAlertTitle = 40
 };
 
@@ -153,12 +155,12 @@ static void HandleContentClick(EventRecord *event, Point clickPoint);
 static void TrackSidebarResize();
 static void TrackWindowResize(WindowPtr window, Point startPoint);
 static bool GetPrefsFolderSpec(ConstStr255Param name, FSSpec *spec);
-static bool GetEventsFileSpec(FSSpec *spec);
+static OSErr GetEventsFileSpec(FSSpec *spec);
 static void MarkWindowPrefsDirty();
-static bool SavePrefs();
+static OSErr SavePrefs();
 static bool LoadPrefs(Rect *outRect, short *outSidebarWidth);
 static void LoadEvents();
-static bool SaveEvents();
+static OSErr SaveEvents();
 static void SaveIfDirty();
 static void QuitApp();
 static void UpdateMenuStates();
@@ -201,6 +203,15 @@ int main()
     SetupSidebar();
     SetupMiniCalendarButtons();
     SetupTimeGridScrollBar();
+
+    // A Day/Week view restored from the prefs needs its grid scrolled into place
+    ViewType startView = gCalendar->GetCurrentView();
+    if (startView == DayView || startView == WeekView)
+    {
+        gUIRenderer->ComputeTimeGridLayout(*gCalendar);
+        gUIRenderer->SetTimeGridScroll(gUIRenderer->DefaultTimeGridScroll(*gCalendar));
+        SyncTimeGridScrollBar();
+    }
 
     // Main event loop
     EventRecord event;
@@ -604,7 +615,7 @@ static bool GetPrefsFolderSpec(ConstStr255Param name, FSSpec *spec)
 {
     short vRefNum;
     long dirID;
-    if (FindFolder(-1, kPreferencesFolderType, true, &vRefNum, &dirID) != noErr)
+    if (FindFolder(kOnSystemDisk, kPreferencesFolderType, true, &vRefNum, &dirID) != noErr)
         return false;
 
     FSMakeFSSpec(vRefNum, dirID, name, spec);
@@ -615,20 +626,21 @@ static bool GetPrefsFolderSpec(ConstStr255Param name, FSSpec *spec)
 // System Folder:Application Support:Kalendae, creating that folder on first
 // use. Falls back to the Preferences folder if there is no Application
 // Support folder (very old systems) or the folder can't be made.
-static bool GetEventsFileSpec(FSSpec *spec)
+static OSErr GetEventsFileSpec(FSSpec *spec)
 {
     short vRefNum;
     long dirID;
-    if (FindFolder(-1, 'asup', true, &vRefNum, &dirID) != noErr)
-        return GetPrefsFolderSpec("\pKalendae Events", spec);
+    if (FindFolder(kOnSystemDisk, 'asup', true, &vRefNum, &dirID) != noErr)
+        return GetPrefsFolderSpec("\pKalendae Events", spec) ? (OSErr)noErr : (OSErr)fnfErr;
 
+    // From here on a failure is an error, not a reason to scatter the data
+    // into another folder.
     FSSpec folderSpec;
     long folderID = 0;
     OSErr err = FSMakeFSSpec(vRefNum, dirID, "\pKalendae", &folderSpec);
     if (err == fnfErr)
     {
-        if (FSpDirCreate(&folderSpec, smSystemScript, &folderID) != noErr)
-            folderID = 0;
+        err = FSpDirCreate(&folderSpec, smSystemScript, &folderID);
     }
     else if (err == noErr)
     {
@@ -636,17 +648,22 @@ static bool GetEventsFileSpec(FSSpec *spec)
         memset(&pb, 0, sizeof(pb));
         pb.dirInfo.ioNamePtr = folderSpec.name;
         pb.dirInfo.ioVRefNum = folderSpec.vRefNum;
-        pb.dirInfo.ioDrParID = folderSpec.parID;
+        pb.dirInfo.ioDrDirID = folderSpec.parID;    // input: the parent folder
         pb.dirInfo.ioFDirIndex = 0;
-        if (PBGetCatInfoSync(&pb) == noErr && (pb.dirInfo.ioFlAttrib & 0x10))
-            folderID = pb.dirInfo.ioDrDirID;
+        err = PBGetCatInfoSync(&pb);
+        if (err == noErr)
+        {
+            if (pb.dirInfo.ioFlAttrib & 0x10)
+                folderID = pb.dirInfo.ioDrDirID;    // output: the folder's own ID
+            else
+                err = dupFNErr;     // a file is in the way
+        }
     }
+    if (err != noErr)
+        return err;
 
-    if (folderID == 0)
-        return GetPrefsFolderSpec("\pKalendae Events", spec);
-
-    FSMakeFSSpec(folderSpec.vRefNum, folderID, "\pKalendae Events", spec);
-    return true;
+    err = FSMakeFSSpec(folderSpec.vRefNum, folderID, "\pKalendae Events", spec);
+    return err == fnfErr ? (OSErr)noErr : err;    // not existing yet is fine
 }
 
 static void PutShort(std::string& s, short v)
@@ -666,14 +683,14 @@ static void MarkWindowPrefsDirty()
     gCalendar->MarkPrefsDirty();
 }
 
-static bool SavePrefs()
+static OSErr SavePrefs()
 {
     if (!gMainWindow)
-        return false;
+        return paramErr;
 
     FSSpec spec;
     if (!GetPrefsFolderSpec("\pKalendae Preferences", &spec))
-        return false;
+        return fnfErr;
 
     SetPort(gMainWindow);
     Point contentTopLeft;
@@ -714,10 +731,10 @@ static bool SavePrefs()
         data += (char)(gCalendar->IsCategoryVisible(it->first) ? 1 : 0);
     }
 
-    if (WriteStringToFile(spec, data, 'pref', 'KALE') != noErr)
-        return false;
-    gCalendar->ClearPrefsDirty();
-    return true;
+    OSErr err = WriteStringToFile(spec, data, 'pref', 'KALE');
+    if (err == noErr)
+        gCalendar->ClearPrefsDirty();
+    return err;
 }
 
 // Reads the prefs file: window geometry (returned), last view and calendar
@@ -827,34 +844,164 @@ static long GetGMTOffsetSeconds()
     return delta;
 }
 
-// A missing or unreadable events file just means an empty calendar.
+// Set when the events file couldn't be read or set aside safely, so saving
+// would destroy data. Events then stay in memory only for this session.
+static bool gEventsNoSave = false;
+static bool gSaveFailureShown = false;
+
+// Shows a one-button message alert (ALRT 142; ^0 = text, up to 255 bytes).
+static void ShowMessageAlert(const std::string& text)
+{
+    Str255 p;
+    size_t n = text.size() > 255 ? 255 : text.size();
+    p[0] = (unsigned char)n;
+    memcpy(&p[1], text.data(), n);
+    ParamText(p, "\p", "\p", "\p");
+    InitCursor();
+    StopAlert(kMessageAlertID, NULL);
+    SetPort(gMainWindow);
+}
+
+// Renames an events file we couldn't understand out of the way, so the next
+// save can't overwrite it. Returns the name it got in `newName`.
+static OSErr SetAsideEventsFile(const FSSpec& specIn, std::string& newName)
+{
+    FSSpec spec = specIn;
+    for (int attempt = 1; attempt <= 9; attempt++)
+    {
+        std::string name = "Kalendae Events (damaged)";
+        if (attempt > 1)
+        {
+            char suffix[8];
+            snprintf(suffix, sizeof(suffix), " %d", attempt);
+            name += suffix;
+        }
+        Str255 pname;
+        pname[0] = (unsigned char)name.size();   // <= 31 characters
+        memcpy(&pname[1], name.data(), name.size());
+
+        FSSpec probe;
+        OSErr err = FSMakeFSSpec(spec.vRefNum, spec.parID, pname, &probe);
+        if (err == fnfErr)
+        {
+            err = FSpRename(&spec, pname);
+            if (err == noErr)
+                newName = name;
+            return err;
+        }
+        if (err != noErr)
+            return err;
+    }
+    return dupFNErr;
+}
+
+static void HandleUnreadableEventsFile(const FSSpec& spec)
+{
+    std::string newName;
+    if (SetAsideEventsFile(spec, newName) == noErr)
+    {
+        ShowMessageAlert("Kalendae couldn't read its events file. It was renamed to \322" +
+                         newName + "\323 and a new one will be created.");
+    }
+    else
+    {
+        gEventsNoSave = true;
+        ShowMessageAlert("Kalendae couldn't read its events file and couldn't set it aside. "
+                         "Changes to events won't be saved in this session.");
+    }
+}
+
+// A missing events file just means an empty calendar; an unreadable one is
+// set aside rather than overwritten.
 static void LoadEvents()
 {
     FSSpec spec;
-    if (GetEventsFileSpec(&spec))
+    OSErr err = GetEventsFileSpec(&spec);
+    if (err != noErr)
     {
-        std::string text;
-        if (ReadFileToString(spec, text) == noErr)
-            gCalendar->LoadEventsFromText(text, GetGMTOffsetSeconds());
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%d", (int)err);
+        gEventsNoSave = true;
+        ShowMessageAlert(std::string("Kalendae couldn't open its events folder (error ") + buf +
+                         "). Changes to events won't be saved in this session.");
+        gCalendar->ClearDirty();
+        return;
+    }
+
+    std::string text;
+    err = ReadFileToString(spec, text);
+
+    if (err == fnfErr)
+    {
+        // An interrupted save may have left the new copy under the temp name
+        unsigned char tempName[32];
+        unsigned char len = spec.name[0] > 30 ? 30 : spec.name[0];
+        tempName[0] = (unsigned char)(len + 1);
+        memcpy(&tempName[1], &spec.name[1], len);
+        tempName[len + 1] = '~';
+        FSSpec temp;
+        if (FSMakeFSSpec(spec.vRefNum, spec.parID, tempName, &temp) == noErr &&
+            FSpRename(&temp, spec.name) == noErr)
+            err = ReadFileToString(spec, text);
+    }
+
+    if (err == fnfErr)
+    {
+        // First run: nothing to load
+    }
+    else if (err == memFullErr)
+    {
+        gEventsNoSave = true;
+        ShowMessageAlert("The events file is too large for Kalendae's memory partition. "
+                         "Choose Get Info on Kalendae and increase the Preferred Size. "
+                         "Changes to events won't be saved in this session.");
+    }
+    else if (err != noErr)
+    {
+        HandleUnreadableEventsFile(spec);
+    }
+    else if (!gCalendar->LoadEventsFromText(text, GetGMTOffsetSeconds()))
+    {
+        HandleUnreadableEventsFile(spec);
     }
     gCalendar->ClearDirty();
 }
 
-static bool SaveEvents()
+static OSErr SaveEvents()
 {
+    if (gEventsNoSave)
+    {
+        gCalendar->ClearDirty();
+        return noErr;
+    }
+
     FSSpec spec;
-    if (!GetEventsFileSpec(&spec))
-        return false;
+    OSErr err = GetEventsFileSpec(&spec);
+    if (err != noErr)
+        return err;
 
     unsigned long secs = 0;
     GetDateTime(&secs);
     long offset = GetGMTOffsetSeconds();
     std::string text = gCalendar->SerializeEvents(offset, (unsigned long)((long)secs - offset));
 
-    if (WriteStringToFile(spec, text, 'TEXT', 'KALE') != noErr)
-        return false;
-    gCalendar->ClearDirty();
-    return true;
+    err = WriteStringToFile(spec, text, 'TEXT', 'KALE');
+    if (err == noErr)
+        gCalendar->ClearDirty();
+    return err;
+}
+
+// Tells the user once per session that background saves are failing; the
+// retries after that are silent.
+static void ReportSaveFailure(OSErr err)
+{
+    if (gSaveFailureShown)
+        return;
+    gSaveFailureShown = true;
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%d", (int)err);
+    ShowMessageAlert(std::string("Your changes couldn't be saved (error ") + buf +
+                     "). Kalendae will keep trying.");
 }
 
 // Called every pass of the main loop. A failed write keeps the dirty flag
@@ -866,27 +1013,48 @@ static void SaveIfDirty()
     if (gCalendar->IsDirty() &&
         (!gEventsRetryPending || (long)(now - gEventsRetryTick) >= 0))
     {
-        gEventsRetryPending = !SaveEvents();
+        OSErr err = SaveEvents();
+        gEventsRetryPending = (err != noErr);
         gEventsRetryTick = now + kSaveRetryTicks;
+        if (err != noErr)
+            ReportSaveFailure(err);
     }
 
     if (gCalendar->IsPrefsDirty() &&
         (!gPrefsRetryPending || (long)(now - gPrefsRetryTick) >= 0))
     {
-        gPrefsRetryPending = !SavePrefs();
+        OSErr err = SavePrefs();
+        gPrefsRetryPending = (err != noErr);
         gPrefsRetryTick = now + kSaveRetryTicks;
+        if (err != noErr)
+            ReportSaveFailure(err);
     }
 }
 
 // Single path to quit through, so every trigger (File > Quit, Cmd-Q, the
 // close box) saves first rather than relying on each call site to
-// remember to.
+// remember to. A failed save offers Cancel.
 static void QuitApp()
 {
+    OSErr err = noErr;
     if (gCalendar->IsDirty())
-        SaveEvents();
+        err = SaveEvents();
     gCalendar->MarkPrefsDirty();    // window position may have changed
-    SavePrefs();
+    OSErr prefsErr = SavePrefs();
+    if (err == noErr)
+        err = prefsErr;
+
+    if (err != noErr)
+    {
+        Str255 num;
+        NumToString((long)err, num);
+        ParamText(num, "\p", "\p", "\p");
+        InitCursor();
+        short item = StopAlert(kQuitSaveFailedAlertID, NULL);
+        SetPort(gMainWindow);
+        if (item == 2)
+            return;     // Cancel: back to the app
+    }
     ExitToShell();
 }
 

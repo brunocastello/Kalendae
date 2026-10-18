@@ -10,7 +10,8 @@
 #include <string>
 #include <Files.h>
 
-// Reads the data fork into `out`. fnfErr (no such file) is passed through.
+// Reads the data fork into `out`. fnfErr (no such file) is passed through;
+// memFullErr means the file is too big for the free memory (not read).
 OSErr ReadFileToString(const FSSpec& spec, std::string& out);
 
 // Writes `data` to a temporary sibling ("<name>~") and swaps it in with

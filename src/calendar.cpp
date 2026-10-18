@@ -46,11 +46,25 @@ bool Calendar::LoadEventsFromText(const std::string& utf8, long gmtOffsetSeconds
                           std::string("Home") : mCategories.begin()->first);
         if (!e.GetCategory().empty() && mCategories.find(e.GetCategory()) == mCategories.end())
             AddCategory(e.GetCategory(), NextPaletteColor());   // visible by default
-        AddEvent(e);
+        AddEventInternal(e, false);
     }
+    SortEvents();
 
     mDirty = false;
-    return !parsed.empty();
+    if (!parsed.empty())
+        return true;
+
+    // Nothing parsed: fine for an empty calendar we wrote ourselves, not for
+    // anything else with content
+    std::string upper(utf8);
+    for (size_t i = 0; i < upper.size(); i++)
+        if (upper[i] >= 'a' && upper[i] <= 'z')
+            upper[i] = (char)(upper[i] - 'a' + 'A');
+    bool blank = upper.find_first_not_of(" \t\r\n") == std::string::npos;
+    if (blank)
+        return true;
+    return upper.find("BEGIN:VCALENDAR") != std::string::npos &&
+           upper.find("BEGIN:VEVENT") == std::string::npos;
 }
 
 std::string Calendar::SerializeEvents(long gmtOffsetSeconds, unsigned long utcNowMacSeconds) const
@@ -88,6 +102,11 @@ ColorRGB Calendar::NextPaletteColor() const
 
 unsigned long Calendar::AddEvent(const Event& event)
 {
+    return AddEventInternal(event, true);
+}
+
+unsigned long Calendar::AddEventInternal(const Event& event, bool sort)
+{
     Event e(event);
     unsigned long id = mNextID++;
     e.SetID(id);
@@ -100,7 +119,8 @@ unsigned long Calendar::AddEvent(const Event& event)
         e.SetUID(buf);
     }
     mEvents.push_back(e);
-    SortEvents();
+    if (sort)
+        SortEvents();
     mDirty = true;
     return id;
 }

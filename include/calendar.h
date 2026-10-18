@@ -48,7 +48,9 @@ public:
 
     // Persistence (iCalendar text; the caller does the file I/O).
     // LoadEventsFromText adds the parsed events through AddEvent, auto-adding
-    // calendars for unknown categories, and leaves the events clean.
+    // calendars for unknown categories, and leaves the events clean. Returns
+    // false if the text looks like it held events (or isn't iCalendar at
+    // all) but none could be read, so the caller can keep the file safe.
     bool LoadEventsFromText(const std::string& utf8, long gmtOffsetSeconds);
     std::string SerializeEvents(long gmtOffsetSeconds, unsigned long utcNowMacSeconds) const;
 
@@ -101,7 +103,10 @@ public:
     // Category management
     void AddCategory(const std::string& name, const ColorRGB& color)
     {
-        mCategories[name] = color;
+        std::string n(name);
+        if (n.size() > 63)
+            n.resize(63);       // Str63 in the prefs file
+        mCategories[n] = color;
         mPrefsDirty = true;
     }
 
@@ -130,6 +135,7 @@ private:
     bool mDirty;
     bool mPrefsDirty;
 
+    unsigned long AddEventInternal(const Event& event, bool sort);
     void AppendOccurrences(std::vector<Occurrence>& out, const Date& date) const;
 };
 

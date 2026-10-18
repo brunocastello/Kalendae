@@ -5,6 +5,7 @@
  */
 
 #include <cstring>
+#include <MacMemory.h>
 #include "ical_io.h"
 
 // Multiversal's FSp* routines take a non-const FSSpecPtr, so each function
@@ -21,6 +22,8 @@ OSErr ReadFileToString(const FSSpec& specIn, std::string& out)
 
     long eof = 0;
     err = GetEOF(refNum, &eof);
+    if (err == noErr && eof > 0 && eof > MaxBlock() / 3)
+        err = memFullErr;   // leave room for the parsed copy of the data
     if (err == noErr && eof > 0)
     {
         out.resize((size_t)eof);

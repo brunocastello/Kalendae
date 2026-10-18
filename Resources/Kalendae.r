@@ -199,3 +199,53 @@ resource 'ALRT' (130) {
     },
     alertPositionMainScreen
 };
+
+/* Quit with unsaved changes that couldn't be written: ^0 = error number.
+   Quit Anyway (default) / Cancel. */
+resource 'DITL' (141) {
+    {
+        {86, 238, 106, 324},
+        Button { enabled, "Quit Anyway" };
+
+        {86, 160, 106, 226},
+        Button { enabled, "Cancel" };
+
+        {12, 70, 76, 324},
+        StaticText { disabled, "Your changes couldn\325t be saved (error ^0)." };
+    }
+};
+
+resource 'ALRT' (141) {
+    {80, 100, 196, 440},
+    141,
+    {
+        OK, visible, silent,
+        OK, visible, silent,
+        OK, visible, silent,
+        OK, visible, silent
+    },
+    alertPositionMainScreen
+};
+
+/* Plain message: ParamText(^0 = text) */
+resource 'DITL' (142) {
+    {
+        {112, 258, 132, 324},
+        Button { enabled, "OK" };
+
+        {12, 70, 100, 324},
+        StaticText { disabled, "^0" };
+    }
+};
+
+resource 'ALRT' (142) {
+    {80, 100, 224, 440},
+    142,
+    {
+        OK, visible, silent,
+        OK, visible, silent,
+        OK, visible, silent,
+        OK, visible, silent
+    },
+    alertPositionMainScreen
+};
