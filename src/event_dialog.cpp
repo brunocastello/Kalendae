@@ -9,7 +9,6 @@
 #include <Quickdraw.h>
 #include <Windows.h>
 #include <Menus.h>
-#include <Controls.h>
 #include <Dialogs.h>
 #include <TextEdit.h>
 #include <Events.h>
