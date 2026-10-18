@@ -138,8 +138,7 @@ OSErr WriteStringToFile(const FSSpec& specIn, const std::string& data, OSType ty
         FSpDelete(&temp);
         return err;
     }
+    // The target is gone, so the temp is now the only copy: keep it on failure
     err = FSpRename(&temp, spec.name);
-    if (err != noErr)
-        FSpDelete(&temp);
     return err;
 }

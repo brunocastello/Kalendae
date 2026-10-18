@@ -443,6 +443,7 @@ comments.
 ---
 
 ### Carry-over notes from reviews
+- **T11**: temp names now step through `~`, `~1` … `~9` and never delete a colliding file. A crash-leftover `Kalendae Events~` therefore stays until it is recovered or removed. Once the target has loaded successfully, delete stale `Kalendae Events~*` at startup. Otherwise saves start failing after 10 leftovers (T6 fix-up review).
 - **T6**: use `X-WR-CALNAME` as the calendar for events that have no `CATEGORIES`, so an Apple export lands in its own calendar (D2) and not in "Home" (T5 RFC review).
 - **All host tests**: the PPC target is ILP32. Any host test of date/time math must run with 32-bit `long` semantics, or it hides overflow (T5 RFC review B1).
 - **Known limits (accepted)**: TZID times are read as local, and one GMT offset applies to all dates, so UTC events across a DST change can be off by one hour. `RECURRENCE-ID` overrides import as standalone events.
