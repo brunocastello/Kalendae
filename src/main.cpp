@@ -1896,7 +1896,7 @@ static void ImportEvents()
                " in the file " + (dupInFile == 1 ? "was" : "were") + " skipped.";
     }
     if (gEventsNoSave && added > 0)
-        msg += " They won\325t be saved in this session. Use File \245 Export\311 to keep a copy.";
+        msg += " They won\325t be saved in this session. Use File > Export\311 to keep a copy.";
     ShowNoteAlert(msg);
 }
 
