@@ -7,8 +7,11 @@
 #include <cstring>
 #include "ical_io.h"
 
-OSErr ReadFileToString(const FSSpec& spec, std::string& out)
+// Multiversal's FSp* routines take a non-const FSSpecPtr, so each function
+// works on a local copy of its const FSSpec argument.
+OSErr ReadFileToString(const FSSpec& specIn, std::string& out)
 {
+    FSSpec spec = specIn;
     out.clear();
 
     short refNum;
@@ -36,8 +39,9 @@ OSErr ReadFileToString(const FSSpec& spec, std::string& out)
 }
 
 // Creates `temp` and writes `data` into it in one FSWrite.
-static OSErr WriteNewFile(const FSSpec& temp, const std::string& data, OSType type, OSType creator)
+static OSErr WriteNewFile(const FSSpec& tempIn, const std::string& data, OSType type, OSType creator)
 {
+    FSSpec temp = tempIn;
     OSErr err = FSpCreate(&temp, creator, type, smSystemScript);
     if (err == dupFNErr)
     {
@@ -71,8 +75,9 @@ static OSErr WriteNewFile(const FSSpec& temp, const std::string& data, OSType ty
     return err;
 }
 
-OSErr WriteStringToFile(const FSSpec& spec, const std::string& data, OSType type, OSType creator)
+OSErr WriteStringToFile(const FSSpec& specIn, const std::string& data, OSType type, OSType creator)
 {
+    FSSpec spec = specIn;
     // Temp sibling "<name>~", clamped to the 31-character HFS limit
     FSSpec temp = spec;
     unsigned char len = spec.name[0];
