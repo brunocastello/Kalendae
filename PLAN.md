@@ -437,7 +437,7 @@ D1, D2, D4 and D6 were confirmed by the user. D3, D5 and D7 take the recommendat
 - [x] T2a renderer (fix-up 4f5a965) / T2b inspector popover / T2c wiring (merged into T2b; fix-up 55c5cf5), reviewed. Awaiting on-screen test by the user.
 - [ ] T2d popover tail (custom WDEF, polish)
 - [x] T3 delete (reviewed; fix-up 3aea0a9)
-- [ ] T4 filtering
+- [x] T4 filtering
 - [ ] T5 persistence
 - [ ] T6 import/export
 - [ ] T7 today + nav

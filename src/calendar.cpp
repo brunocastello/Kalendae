@@ -222,10 +222,10 @@ void Calendar::ProcessBackgroundTasks()
 void Calendar::InitializeDefaultCategories()
 {
     // Set up default color categories
-    mCategories["Work"] = ColorRGB(255, 0, 0);     // Red
-    mCategories["Personal"] = ColorRGB(0, 255, 0); // Green
-    mCategories["Retro"] = ColorRGB(0, 0, 255);    // Blue
-    mCategories["Vintage"] = ColorRGB(255, 255, 0); // Yellow
+    mCategories["Work"] = ColorRGB(255, 59, 48);    // Apple red
+    mCategories["Personal"] = ColorRGB(0, 122, 255);   // Apple blue
+    mCategories["Retro"] = ColorRGB(52, 199, 89);   // Apple green
+    mCategories["Vintage"] = ColorRGB(255, 149, 0);   // Apple orange
 }
 
 void Calendar::CheckForUpcomingReminders()

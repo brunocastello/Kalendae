@@ -9,6 +9,7 @@
 #include <Menus.h>
 #include <Fonts.h>
 #include <TextEdit.h>
+#include <TextUtils.h>
 #include <Dialogs.h>
 #include <Events.h>
 #include <Processes.h>
@@ -958,10 +959,43 @@ static void EditSelectedEvent()
     EditEventWithID(id, anchor);
 }
 
+// Sidebar calendar rows: [checkbox][colour swatch][name]. SetupSidebar,
+// DrawSidebar, MiniCalendarTop and the row hit-test all use these.
+static const short kSidebarListTop = kToolbarHeight + 28;
+static const short kSidebarRowHeight = 18;
+static const short kSidebarRowGap = 4;
+static const short kSidebarCheckLeft = 14;
+static const short kSidebarCheckSize = 16;
+static const short kSidebarSwatchLeft = 36;
+static const short kSidebarSwatchSize = 10;
+static const short kSidebarNameLeft = 52;
+
+static short SidebarRowTop(int index)
+{
+    return kSidebarListTop + (short)(index * (kSidebarRowHeight + kSidebarRowGap));
+}
+
+// The one place a checkbox index maps to a category (std::map order, same
+// as SetupSidebar and DrawSidebar iterate).
+static bool CategoryAtIndex(int index, std::string& name, ColorRGB& color)
+{
+    const std::map<std::string, ColorRGB>& categories = gCalendar->GetCategories();
+    int i = 0;
+    for (std::map<std::string, ColorRGB>::const_iterator it = categories.begin();
+         it != categories.end(); ++it, ++i)
+    {
+        if (i == index)
+        {
+            name = it->first;
+            color = it->second;
+            return true;
+        }
+    }
+    return false;
+}
+
 static void SetupSidebar()
 {
-    const short checkboxHeight = 18;
-    short top = kToolbarHeight + 28;
     int index = 0;
 
     const std::map<std::string, ColorRGB>& categories = gCalendar->GetCategories();
@@ -969,23 +1003,79 @@ static void SetupSidebar()
          it != categories.end(); ++it)
     {
         Rect r;
-        r.top = top;
-        r.bottom = top + checkboxHeight;
-        r.left = 20;
-        r.right = gSidebarWidth - 10;
+        r.top = SidebarRowTop(index) + 1;
+        r.bottom = r.top + kSidebarCheckSize;
+        r.left = kSidebarCheckLeft;
+        r.right = r.left + kSidebarCheckSize;
 
-        Str255 title;
-        size_t len = it->first.size();
-        if (len > 255) len = 255;
-        title[0] = (unsigned char)len;
-        memcpy(&title[1], it->first.c_str(), len);
-
-        NewControl(gMainWindow, &r, title, true, 1, 0, 1, checkBoxProc,
+        NewControl(gMainWindow, &r, "\p", true,
+                   gCalendar->IsCategoryVisible(it->first) ? 1 : 0, 0, 1, checkBoxProc,
                    kCheckboxRefConBase + index);
 
-        top += checkboxHeight + 4;
         index++;
     }
+}
+
+static ControlHandle FindCategoryCheckbox(int index)
+{
+    ControlHandle c = ((WindowPeek)gMainWindow)->controlList;
+    while (c)
+    {
+        if (GetControlReference(c) == kCheckboxRefConBase + index)
+            return c;
+        c = (*c)->nextControl;
+    }
+    return NULL;
+}
+
+// Applies a visibility change from the checkbox or a row click: updates
+// the model and the control, drops a selection that just became hidden,
+// and repaints the content.
+static void SetCategoryVisibleByIndex(int index, bool visible)
+{
+    std::string name;
+    ColorRGB color;
+    if (!CategoryAtIndex(index, name, color))
+        return;
+
+    gCalendar->SetCategoryVisible(name, visible);
+
+    ControlHandle c = FindCategoryCheckbox(index);
+    if (c)
+        SetControlValue(c, visible ? 1 : 0);
+
+    unsigned long selected = gUIRenderer->GetSelectedEvent();
+    if (!visible && selected != 0)
+    {
+        const Event* e = gCalendar->FindEvent(selected);
+        if (e && e->GetCategory() == name)
+            SelectEvent(0, Date());
+    }
+
+    RefreshAfterEdit();
+}
+
+// Click on a row's swatch or name toggles the calendar like its checkbox.
+static bool HandleSidebarRowClick(Point clickPoint)
+{
+    if (clickPoint.h < kSidebarCheckLeft || clickPoint.h >= gSidebarWidth - kSplitterWidth)
+        return false;
+
+    int count = (int)gCalendar->GetCategories().size();
+    for (int i = 0; i < count; i++)
+    {
+        short top = SidebarRowTop(i);
+        if (clickPoint.v >= top && clickPoint.v < top + kSidebarRowHeight)
+        {
+            std::string name;
+            ColorRGB color;
+            if (!CategoryAtIndex(i, name, color))
+                return false;
+            SetCategoryVisibleByIndex(i, !gCalendar->IsCategoryVisible(name));
+            return true;
+        }
+    }
+    return false;
 }
 
 static void DrawSidebar()
@@ -1001,19 +1091,60 @@ static void DrawSidebar()
     MoveTo(sidebar.right, sidebar.top);
     LineTo(sidebar.right, sidebar.bottom);
 
+    RGBColor black = {0, 0, 0};
+    RGBColor headerGrey = {0x6666, 0x6666, 0x6666};
+
     TextFace(bold);
-    TextSize(11);
-    MoveTo(20, sidebar.top + 16);
-    DrawString("\pCalendars");
+    TextSize(10);
+    RGBForeColor(&headerGrey);
+    MoveTo(kSidebarCheckLeft, sidebar.top + 16);
+    DrawString("\pOn My Mac");
+    RGBForeColor(&black);
     TextFace(normal);
+    TextSize(11);
+
+    int index = 0;
+    const std::map<std::string, ColorRGB>& categories = gCalendar->GetCategories();
+    for (std::map<std::string, ColorRGB>::const_iterator it = categories.begin();
+         it != categories.end(); ++it, ++index)
+    {
+        short rowTop = SidebarRowTop(index);
+
+        Rect sw;
+        sw.top = rowTop + (kSidebarRowHeight - kSidebarSwatchSize) / 2;
+        sw.bottom = sw.top + kSidebarSwatchSize;
+        sw.left = kSidebarSwatchLeft;
+        sw.right = sw.left + kSidebarSwatchSize;
+
+        const ColorRGB& c = it->second;
+        RGBColor fill = {(unsigned short)(c.r * 257), (unsigned short)(c.g * 257),
+                         (unsigned short)(c.b * 257)};
+        RGBColor frame = {(unsigned short)(c.r * 257 * 6 / 10), (unsigned short)(c.g * 257 * 6 / 10),
+                          (unsigned short)(c.b * 257 * 6 / 10)};
+        RGBForeColor(&fill);
+        PaintRect(&sw);
+        RGBForeColor(&frame);
+        FrameRect(&sw);
+        RGBForeColor(&black);
+
+        Str255 name;
+        size_t len = it->first.size();
+        if (len > 255) len = 255;
+        name[0] = (unsigned char)len;
+        memcpy(&name[1], it->first.c_str(), len);
+        short avail = gSidebarWidth - kSidebarNameLeft - 6;
+        if (avail > 0 && StringWidth(name) > avail)
+            TruncString(avail, name, truncEnd);
+
+        MoveTo(kSidebarNameLeft, rowTop + 13);
+        DrawString(name);
+    }
 }
 
 static short MiniCalendarTop()
 {
-    const short checkboxHeight = 18;
-    short listBottom = kToolbarHeight + 28 +
-        (short)(gCalendar->GetCategories().size() * (checkboxHeight + 4));
-    return listBottom + 20;
+    short listBottom = SidebarRowTop((int)gCalendar->GetCategories().size());
+    return listBottom + 20 - kSidebarRowGap;
 }
 
 static void SetupMiniCalendarButtons()
@@ -1381,13 +1512,18 @@ static void HandleWindowEvent(EventRecord *event)
                     }
                     else if (ref >= kCheckboxRefConBase)
                     {
-                        SetControlValue(control, !GetControlValue(control));
+                        SetCategoryVisibleByIndex((int)(ref - kCheckboxRefConBase),
+                                                  !GetControlValue(control));
                     }
                     else
                     {
                         SwitchToView((ViewType)ref);
                     }
                 }
+            }
+            else if (HandleSidebarRowClick(clickPoint))
+            {
+                // toggled a calendar via its swatch or name
             }
             else if (!HandleMiniCalendarClick(clickPoint))
             {
