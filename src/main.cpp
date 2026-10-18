@@ -638,7 +638,7 @@ static bool GetEventsFileSpec(FSSpec *spec)
         pb.dirInfo.ioVRefNum = folderSpec.vRefNum;
         pb.dirInfo.ioDrParID = folderSpec.parID;
         pb.dirInfo.ioFDirIndex = 0;
-        if (PBGetCatInfoSync(&pb) == noErr && (pb.dirInfo.ioFlAttrib & ioDirMask))
+        if (PBGetCatInfoSync(&pb) == noErr && (pb.dirInfo.ioFlAttrib & 0x10))
             folderID = pb.dirInfo.ioDrDirID;
     }
 
