@@ -415,7 +415,7 @@ For each task (and sub-task) Tn:
 
 ## 4. Decisions (resolved 2026-10-18)
 
-D1, D2, D4 and D6 were confirmed by the user. D3, D5 and D7 take the recommendation as the default.
+D1, D2, D4, D6 and D8 were confirmed by the user. D3, D5 and D7 take the recommendation as the default.
 
 | ID | Decision | Resolution |
 |----|----------|----------------|
@@ -426,6 +426,7 @@ D1, D2, D4 and D6 were confirmed by the user. D3, D5 and D7 take the recommendat
 | **D5** | Recurring-event edits: Apple asks "this event / all future". | v1 edits the whole series. Delete offers "only this" via EXDATE. Revisit after T8. |
 | **D6** | CLAUDE.md names Time Manager for reminders, but a Time Manager task runs at interrupt time and can't call `NMInstall` safely with an allocated record anyway. | Poll from the main event loop (`WaitNextEvent` sleep is 10 ticks, so latency is ≤ 15 s). No Time Manager. |
 | **D7** | T0 hotfix: is it worth a CI round now, or should it go straight to T1/T2? | Do T0. It's 5 lines, and it lets you confirm F3 on real hardware/emulator. |
+| **D8** | Default calendars (decided 2026-10-18). | The defaults are Apple's local pair: **Home** (Apple blue 0,122,255) and **Work** (Apple red 255,59,48). They replace Work/Personal/Retro/Vintage. Applied in T5 (or the T4 fix-up, if there is one). |
 
 ---
 
