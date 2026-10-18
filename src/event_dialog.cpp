@@ -62,6 +62,31 @@ static const int kRepeatCustomItem = 7;
 static ModalFilterUPP sFilterUPP = NULL;
 static UserItemUPP sLabelsUPP = NULL;
 static InspectorUpdateProc sUpdateProc = NULL;
+// Whether the start/end time fields are shown (read by the filter for Tab).
+static bool sTimeVisible = true;
+
+// Everything ReadFields needs to know about how the popover was filled.
+struct InspectorState
+{
+    std::vector<std::string> calendarNames;  // calendar popup item i+1
+    short calendarInitial;
+    short alertInitial;
+    short alertCustomMinutes;                // alert popup item kAlertCount+1, if any
+    short repeatInitial;
+    bool hasCustomRepeat;
+    std::string originalRule;
+    // Text fields are capped at 255 chars; keep the full originals so an
+    // untouched field is saved losslessly.
+    std::string titleLoaded, titleFull;
+    std::string locationLoaded, locationFull;
+    std::string notesLoaded, notesFull;      // notesLoaded uses '\r', notesFull '\n'
+};
+
+struct MenuItemDef
+{
+    std::string text;
+    bool separator;
+};
 
 // ---------------------------------------------------------------- strings
 
@@ -178,7 +203,7 @@ static bool ParseDate(const std::string& s, Date* out)
 
     if (yDigits <= 2) y += 2000;
     else if (yDigits != 4) return false;
-    if (y < 1904 || y > 9999) return false;
+    if (y < 1904 || y > 2100) return false;
     if (m < 1 || m > 12) return false;
     if (d < 1 || d > Date::DaysInMonth(y, m)) return false;
 
@@ -232,7 +257,26 @@ static bool ParseTime(const std::string& s, short* minute)
 
 // -------------------------------------------------------------- menus
 
-static void BuildMenu(short id, const std::vector<std::string>& items)
+static void AddItem(std::vector<MenuItemDef>& items, const std::string& text)
+{
+    MenuItemDef d;
+    d.text = text;
+    // A leading '-' would still be safe via SetMenuItemText, but looks like a
+    // separator; use an en dash (MacRoman 0xD0) instead.
+    if (!d.text.empty() && d.text[0] == '-')
+        d.text[0] = (char)0xD0;
+    d.separator = false;
+    items.push_back(d);
+}
+
+static void AddSeparator(std::vector<MenuItemDef>& items)
+{
+    MenuItemDef d;
+    d.separator = true;
+    items.push_back(d);
+}
+
+static void BuildMenu(short id, const std::vector<MenuItemDef>& items)
 {
     // A stale menu with this id (a previous run that bailed out) is replaced.
     MenuHandle old = GetMenuHandle(id);
@@ -249,7 +293,7 @@ static void BuildMenu(short id, const std::vector<std::string>& items)
     short n = 0;
     for (size_t i = 0; i < items.size(); i++)
     {
-        if (items[i] == "-")
+        if (items[i].separator)
         {
             AppendMenu(menu, "\p(-");
             n++;
@@ -257,11 +301,11 @@ static void BuildMenu(short id, const std::vector<std::string>& items)
         else
         {
             // Placeholder, then SetMenuItemText so metacharacters in
-            // category names ("-", "(", ";", "/") are taken literally.
+            // category names ("(", ";", "/") are taken literally.
             AppendMenu(menu, "\pX");
             n++;
             Str255 p;
-            ToPascal(items[i], p);
+            ToPascal(items[i].text, p);
             SetMenuItemText(menu, n, p);
         }
     }
@@ -331,6 +375,32 @@ static pascal void DrawLabels(DialogPtr dlg, short)
     }
 }
 
+// Tab / shift-Tab through the visible edit fields, wrapping around.
+static void MoveFocus(DialogPtr dlg, int direction)
+{
+    static const short kOrder[] = {
+        kTitleItem, kLocationItem, kStartDateItem, kStartTimeItem,
+        kEndDateItem, kEndTimeItem, kNotesItem
+    };
+    const int count = 7;
+
+    short focus = ((DialogPeek)dlg)->editField + 1;
+    int index = 0;
+    for (int i = 0; i < count; i++)
+        if (kOrder[i] == focus)
+            index = i;
+
+    for (int step = 0; step < count; step++)
+    {
+        index = (index + direction + count) % count;
+        short item = kOrder[index];
+        if (!sTimeVisible && (item == kStartTimeItem || item == kEndTimeItem))
+            continue;
+        SelectDialogItemText(dlg, item, 0, 32767);
+        return;
+    }
+}
+
 static pascal Boolean InspectorFilter(DialogPtr dlg, EventRecord* event, short* itemHit)
 {
     switch (event->what)
@@ -362,8 +432,8 @@ static pascal Boolean InspectorFilter(DialogPtr dlg, EventRecord* event, short* 
                         FlashItem(dlg, kCancelItem);
                         *itemHit = kCancelItem;
                         return true;
-                    case 'x': case 'X': DialogCut(dlg); break;
-                    case 'c': case 'C': DialogCopy(dlg); break;
+                    case 'x': case 'X': DialogCut(dlg); ZeroScrap(); TEToScrap(); break;
+                    case 'c': case 'C': DialogCopy(dlg); ZeroScrap(); TEToScrap(); break;
                     case 'v': case 'V': DialogPaste(dlg); break;
                     default: break;
                 }
@@ -379,11 +449,23 @@ static pascal Boolean InspectorFilter(DialogPtr dlg, EventRecord* event, short* 
                 return true;
             }
 
+            if (ch == '\t')
+            {
+                MoveFocus(dlg, (event->modifiers & shiftKey) ? -1 : 1);
+                *itemHit = 0;
+                return true;
+            }
+
+            if (ch == 0x0D && ((DialogPeek)dlg)->editField + 1 == kNotesItem)
+            {
+                // In Notes, Return is a line break (Enter still saves).
+                TEKey('\r', ((DialogPeek)dlg)->textH);
+                *itemHit = 0;
+                return true;
+            }
+
             if (ch == 0x0D || ch == 0x03)
             {
-                // In Notes, Return is a line break.
-                if (((DialogPeek)dlg)->editField + 1 == kNotesItem)
-                    return false;
                 FlashItem(dlg, kOKItem);
                 *itemHit = kOKItem;
                 return true;
@@ -421,7 +503,24 @@ static void PlaceDialog(DialogPtr dlg, const Rect& anchor)
 {
     short width = dlg->portRect.right - dlg->portRect.left;
     short height = dlg->portRect.bottom - dlg->portRect.top;
+
+    // The screen containing the anchor's centre (main screen as fallback).
     Rect screen = qd.screenBits.bounds;
+    GDHandle mainDevice = GetMainDevice();
+    GDHandle onDevice = mainDevice;
+    Point centre;
+    centre.h = (anchor.left + anchor.right) / 2;
+    centre.v = (anchor.top + anchor.bottom) / 2;
+    for (GDHandle gd = GetDeviceList(); gd; gd = GetNextDevice(gd))
+    {
+        Rect r = (**gd).gdRect;
+        if (PtInRect(centre, &r))
+        {
+            screen = r;
+            onDevice = gd;
+            break;
+        }
+    }
 
     short left = anchor.right + 8;
     if (left + width > screen.right - 4)
@@ -430,7 +529,9 @@ static void PlaceDialog(DialogPtr dlg, const Rect& anchor)
 
     if (left + width > screen.right - 4) left = screen.right - 4 - width;
     if (left < screen.left + 4) left = screen.left + 4;
-    short minTop = GetMBarHeight() + 4;
+    short minTop = screen.top + 4;
+    if (onDevice == mainDevice)
+        minTop = screen.top + GetMBarHeight() + 4;
     if (top + height > screen.bottom - 4) top = screen.bottom - 4 - height;
     if (top < minTop) top = minTop;
 
@@ -447,11 +548,11 @@ static void ShowInvalid(DialogPtr dlg, const char* message, short fieldItem)
     SelectDialogItemText(dlg, fieldItem, 0, 32767);
 }
 
-static void SetTimeFieldsVisible(DialogPtr dlg, bool visible, bool* state)
+static void SetTimeFieldsVisible(DialogPtr dlg, bool visible)
 {
-    if (*state == visible)
+    if (sTimeVisible == visible)
         return;
-    *state = visible;
+    sTimeVisible = visible;
     if (visible)
     {
         ShowDialogItem(dlg, kStartTimeItem);
@@ -462,8 +563,10 @@ static void SetTimeFieldsVisible(DialogPtr dlg, bool visible, bool* state)
         short focus = ((DialogPeek)dlg)->editField + 1;
         HideDialogItem(dlg, kStartTimeItem);
         HideDialogItem(dlg, kEndTimeItem);
-        if (focus == kStartTimeItem || focus == kEndTimeItem)
+        if (focus == kStartTimeItem)
             SelectDialogItemText(dlg, kStartDateItem, 0, 32767);
+        else if (focus == kEndTimeItem)
+            SelectDialogItemText(dlg, kEndDateItem, 0, 32767);
     }
 }
 
@@ -480,9 +583,7 @@ static std::string NormalizeRule(const std::string& rule)
 
 // Validates every field and writes them into `out` (a copy of the incoming
 // event). On failure shows the alert, selects the field and returns false.
-static bool ReadFields(DialogPtr dlg, bool isNew, Event& out,
-                       const std::vector<std::string>& calendarNames,
-                       bool hasCustomRepeat, const std::string& originalRule)
+static bool ReadFields(DialogPtr dlg, bool isNew, Event& out, const InspectorState& st)
 {
     bool allDay = GetControlValue(GetItemControl(dlg, kAllDayItem)) != 0;
 
@@ -533,16 +634,26 @@ static bool ReadFields(DialogPtr dlg, bool isNew, Event& out,
     }
 
     std::string title = GetItemText(dlg, kTitleItem);
+    if (title == st.titleLoaded)
+        title = st.titleFull;
     if (title.empty())
         title = isNew ? "New Event" : out.GetTitle();
 
     out.SetTitle(title);
-    out.SetLocation(GetItemText(dlg, kLocationItem));
+    std::string location = GetItemText(dlg, kLocationItem);
+    out.SetLocation(location == st.locationLoaded ? st.locationFull : location);
 
     std::string notes = GetItemText(dlg, kNotesItem);
-    for (size_t i = 0; i < notes.size(); i++)
-        if (notes[i] == '\r')
-            notes[i] = '\n';
+    if (notes == st.notesLoaded)
+    {
+        notes = st.notesFull;
+    }
+    else
+    {
+        for (size_t i = 0; i < notes.size(); i++)
+            if (notes[i] == '\r')
+                notes[i] = '\n';
+    }
     out.SetDescription(notes);
 
     out.SetAllDay(allDay);
@@ -554,21 +665,32 @@ static bool ReadFields(DialogPtr dlg, bool isNew, Event& out,
         out.SetEndMinute(em);
     }
 
+    // Popups only write back when the user changed them, so values the
+    // popup can't represent exactly are never rewritten.
     short calIndex = GetControlValue(GetItemControl(dlg, kCalendarItem));
-    if (calIndex >= 1 && calIndex <= (short)calendarNames.size())
-        out.SetCategory(calendarNames[calIndex - 1]);
+    if (calIndex != st.calendarInitial && calIndex >= 1 &&
+        calIndex <= (short)st.calendarNames.size())
+        out.SetCategory(st.calendarNames[calIndex - 1]);
 
     short alertIndex = GetControlValue(GetItemControl(dlg, kAlertItem));
-    if (alertIndex >= 1 && alertIndex <= kAlertCount && kAlertValues[alertIndex - 1] != -2)
-        out.SetAlertMinutes(kAlertValues[alertIndex - 1]);
+    if (alertIndex != st.alertInitial)
+    {
+        if (alertIndex >= 1 && alertIndex <= kAlertCount && kAlertValues[alertIndex - 1] != -2)
+            out.SetAlertMinutes(kAlertValues[alertIndex - 1]);
+        else if (alertIndex == kAlertCount + 1)
+            out.SetAlertMinutes(st.alertCustomMinutes);
+    }
 
     short repeatIndex = GetControlValue(GetItemControl(dlg, kRepeatItem));
-    if (repeatIndex == 1)
-        out.SetRecurrenceRule("");
-    else if (repeatIndex >= 3 && repeatIndex <= 6)
-        out.SetRecurrenceRule(kRepeatRules[repeatIndex - 1]);
-    else if (repeatIndex == kRepeatCustomItem && hasCustomRepeat)
-        out.SetRecurrenceRule(originalRule);
+    if (repeatIndex != st.repeatInitial)
+    {
+        if (repeatIndex == 1)
+            out.SetRecurrenceRule("");
+        else if (repeatIndex >= 3 && repeatIndex <= 6)
+            out.SetRecurrenceRule(kRepeatRules[repeatIndex - 1]);
+        else if (repeatIndex == kRepeatCustomItem && st.hasCustomRepeat)
+            out.SetRecurrenceRule(st.originalRule);
+    }
 
     return true;
 }
@@ -586,50 +708,92 @@ short ShowEventInspector(Event& inOut, bool isNew, const Rect& anchorGlobal,
     sUpdateProc = updateProc;
 
     // Popup menus must exist before the dialog's controls are created.
-    std::vector<std::string> calendarNames;
+    InspectorState st;
+    std::vector<MenuItemDef> calendarItems;
     const std::map<std::string, ColorRGB>& cats = calendar.GetCategories();
     for (std::map<std::string, ColorRGB>::const_iterator it = cats.begin(); it != cats.end(); ++it)
-        calendarNames.push_back(it->first);
-    if (calendarNames.empty())
-        calendarNames.push_back(inOut.GetCategory().empty() ? "Work" : inOut.GetCategory());
-    BuildMenu(kCalendarMenuID, calendarNames);
+        st.calendarNames.push_back(it->first);
+    if (st.calendarNames.empty() && inOut.GetCategory().empty())
+        st.calendarNames.push_back("Work");
 
-    std::vector<std::string> alertItems;
-    alertItems.push_back("None");
-    alertItems.push_back("-");
-    alertItems.push_back("At time of event");
-    alertItems.push_back("5 minutes before");
-    alertItems.push_back("15 minutes before");
-    alertItems.push_back("30 minutes before");
-    alertItems.push_back("1 hour before");
-    alertItems.push_back("1 day before");
-    BuildMenu(kAlertMenuID, alertItems);
-
-    std::string originalRule = inOut.GetRecurrenceRule();
-    std::string rule = NormalizeRule(originalRule);
-    int repeatIndex = 1;
-    bool hasCustomRepeat = false;
-    if (!rule.empty())
-    {
-        repeatIndex = 0;
-        for (int i = 2; i < 6; i++)
-            if (rule == kRepeatRules[i])
-                repeatIndex = i + 1;
-        if (repeatIndex == 0)
+    // Unknown category: append it so the popup can show (and keep) it.
+    st.calendarInitial = 1;
+    bool foundCategory = false;
+    for (size_t i = 0; i < st.calendarNames.size(); i++)
+        if (st.calendarNames[i] == inOut.GetCategory())
         {
-            hasCustomRepeat = true;
-            repeatIndex = kRepeatCustomItem;
+            st.calendarInitial = (short)(i + 1);
+            foundCategory = true;
+        }
+    if (!foundCategory && !inOut.GetCategory().empty())
+    {
+        st.calendarNames.push_back(inOut.GetCategory());
+        st.calendarInitial = (short)st.calendarNames.size();
+    }
+    for (size_t i = 0; i < st.calendarNames.size(); i++)
+        AddItem(calendarItems, st.calendarNames[i]);
+    BuildMenu(kCalendarMenuID, calendarItems);
+
+    std::vector<MenuItemDef> alertItems;
+    AddItem(alertItems, "None");
+    AddSeparator(alertItems);
+    AddItem(alertItems, "At time of event");
+    AddItem(alertItems, "5 minutes before");
+    AddItem(alertItems, "15 minutes before");
+    AddItem(alertItems, "30 minutes before");
+    AddItem(alertItems, "1 hour before");
+    AddItem(alertItems, "1 day before");
+
+    st.alertInitial = 1;
+    st.alertCustomMinutes = 0;
+    short alertMinutes = inOut.GetAlertMinutes();
+    if (alertMinutes >= 0)
+    {
+        st.alertInitial = 0;
+        for (int i = 0; i < kAlertCount; i++)
+            if (kAlertValues[i] == alertMinutes)
+                st.alertInitial = (short)(i + 1);
+        if (st.alertInitial == 0)
+        {
+            char buf[40];
+            if (alertMinutes % 1440 == 0)
+                snprintf(buf, sizeof(buf), "%d days before", alertMinutes / 1440);
+            else if (alertMinutes % 60 == 0)
+                snprintf(buf, sizeof(buf), "%d hours before", alertMinutes / 60);
+            else
+                snprintf(buf, sizeof(buf), "%d minutes before", alertMinutes);
+            AddItem(alertItems, buf);
+            st.alertCustomMinutes = alertMinutes;
+            st.alertInitial = kAlertCount + 1;
         }
     }
-    std::vector<std::string> repeatItems;
-    repeatItems.push_back("None");
-    repeatItems.push_back("-");
-    repeatItems.push_back("Every Day");
-    repeatItems.push_back("Every Week");
-    repeatItems.push_back("Every Month");
-    repeatItems.push_back("Every Year");
-    if (hasCustomRepeat)
-        repeatItems.push_back("Custom");
+    BuildMenu(kAlertMenuID, alertItems);
+
+    st.originalRule = inOut.GetRecurrenceRule();
+    std::string rule = NormalizeRule(st.originalRule);
+    st.repeatInitial = 1;
+    st.hasCustomRepeat = false;
+    if (!rule.empty())
+    {
+        st.repeatInitial = 0;
+        for (int i = 2; i < 6; i++)
+            if (rule == kRepeatRules[i])
+                st.repeatInitial = (short)(i + 1);
+        if (st.repeatInitial == 0)
+        {
+            st.hasCustomRepeat = true;
+            st.repeatInitial = kRepeatCustomItem;
+        }
+    }
+    std::vector<MenuItemDef> repeatItems;
+    AddItem(repeatItems, "None");
+    AddSeparator(repeatItems);
+    AddItem(repeatItems, "Every Day");
+    AddItem(repeatItems, "Every Week");
+    AddItem(repeatItems, "Every Month");
+    AddItem(repeatItems, "Every Year");
+    if (st.hasCustomRepeat)
+        AddItem(repeatItems, "Custom");
     BuildMenu(kRepeatMenuID, repeatItems);
 
     short result = kInspectorCancelled;
@@ -644,6 +808,7 @@ short ShowEventInspector(Event& inOut, bool isNew, const Rect& anchorGlobal,
         return result;
     }
     SetPort(dlg);
+    SetDialogTracksCursor(dlg, true);
 
     // Label column
     {
@@ -654,15 +819,27 @@ short ShowEventInspector(Event& inOut, bool isNew, const Rect& anchorGlobal,
         SetDialogItem(dlg, kLabelsItem, userItem, (Handle)sLabelsUPP, &r);
     }
 
-    // Fill the fields
-    SetItemText(dlg, kTitleItem, isNew ? std::string("New Event") : inOut.GetTitle());
-    SetItemText(dlg, kLocationItem, inOut.GetLocation());
+    // Fill the fields. The loaded (255-clamped) text is remembered so an
+    // untouched field can be saved from the full original.
+    Str255 clamp;
+    st.titleFull = isNew ? std::string("New Event") : inOut.GetTitle();
+    ToPascal(st.titleFull, clamp);
+    st.titleLoaded = FromPascal(clamp);
+    SetItemText(dlg, kTitleItem, st.titleFull);
 
-    std::string notes = inOut.GetDescription();
-    for (size_t i = 0; i < notes.size(); i++)
-        if (notes[i] == '\n')
-            notes[i] = '\r';
-    SetItemText(dlg, kNotesItem, notes);
+    st.locationFull = inOut.GetLocation();
+    ToPascal(st.locationFull, clamp);
+    st.locationLoaded = FromPascal(clamp);
+    SetItemText(dlg, kLocationItem, st.locationFull);
+
+    st.notesFull = inOut.GetDescription();
+    std::string notesCR = st.notesFull;
+    for (size_t i = 0; i < notesCR.size(); i++)
+        if (notesCR[i] == '\n')
+            notesCR[i] = '\r';
+    ToPascal(notesCR, clamp);
+    st.notesLoaded = FromPascal(clamp);
+    SetItemText(dlg, kNotesItem, notesCR);
 
     bool allDay = inOut.IsAllDay();
     SetControlValue(GetItemControl(dlg, kAllDayItem), allDay ? 1 : 0);
@@ -681,31 +858,19 @@ short ShowEventInspector(Event& inOut, bool isNew, const Rect& anchorGlobal,
     SetItemText(dlg, kEndDateItem, FormatDate(ed));
     SetItemText(dlg, kEndTimeItem, FormatTime(em));
 
-    short calIndex = 1;
-    for (size_t i = 0; i < calendarNames.size(); i++)
-        if (calendarNames[i] == inOut.GetCategory())
-            calIndex = (short)(i + 1);
-    SetControlValue(GetItemControl(dlg, kCalendarItem), calIndex);
-
-    short alertIndex = 1;
-    short alertMinutes = inOut.GetAlertMinutes();
-    if (alertMinutes >= 0)
-    {
-        for (int i = 0; i < kAlertCount; i++)
-            if (kAlertValues[i] >= 0 && kAlertValues[i] <= alertMinutes)
-                alertIndex = (short)(i + 1);
-    }
-    SetControlValue(GetItemControl(dlg, kAlertItem), alertIndex);
-    SetControlValue(GetItemControl(dlg, kRepeatItem), (short)repeatIndex);
+    SetControlValue(GetItemControl(dlg, kCalendarItem), st.calendarInitial);
+    SetControlValue(GetItemControl(dlg, kAlertItem), st.alertInitial);
+    SetControlValue(GetItemControl(dlg, kRepeatItem), st.repeatInitial);
 
     if (isNew)
         HideDialogItem(dlg, kDeleteItem);
 
-    bool timeVisible = true;
-    SetTimeFieldsVisible(dlg, !allDay, &timeVisible);
+    sTimeVisible = true;
+    SetTimeFieldsVisible(dlg, !allDay);
 
     SetDialogDefaultItem(dlg, kOKItem);
     SetDialogCancelItem(dlg, kCancelItem);
+    TEFromScrap();
 
     if (isNew)
         SelectDialogItemText(dlg, kTitleItem, 0, 32767);
@@ -724,7 +889,7 @@ short ShowEventInspector(Event& inOut, bool isNew, const Rect& anchorGlobal,
         if (item == kOKItem)
         {
             Event edited = inOut;
-            if (ReadFields(dlg, isNew, edited, calendarNames, hasCustomRepeat, originalRule))
+            if (ReadFields(dlg, isNew, edited, st))
             {
                 inOut = edited;
                 result = kInspectorSaved;
@@ -745,7 +910,7 @@ short ShowEventInspector(Event& inOut, bool isNew, const Rect& anchorGlobal,
         {
             ControlHandle c = GetItemControl(dlg, kAllDayItem);
             SetControlValue(c, GetControlValue(c) ? 0 : 1);
-            SetTimeFieldsVisible(dlg, GetControlValue(c) == 0, &timeVisible);
+            SetTimeFieldsVisible(dlg, GetControlValue(c) == 0);
         }
     }
 

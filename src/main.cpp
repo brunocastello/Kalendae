@@ -1280,6 +1280,10 @@ static void HandleWindowEvent(EventRecord *event)
 
 static void HandleCommandEvent(EventRecord *event)
 {
+    // Opening an inspector must not repeat while the key is held.
+    if (event->what == autoKey)
+        return;
+
     char ch = (char)(event->message & charCodeMask);
     if (event->modifiers & cmdKey)
     {
