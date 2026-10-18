@@ -1038,6 +1038,9 @@ static void SetCategoryVisibleByIndex(int index, bool visible)
     if (!CategoryAtIndex(index, name, color))
         return;
 
+    SetPort(gMainWindow);
+    gLastClickValid = false;
+
     gCalendar->SetCategoryVisible(name, visible);
 
     ControlHandle c = FindCategoryCheckbox(index);
@@ -1071,7 +1074,19 @@ static bool HandleSidebarRowClick(Point clickPoint)
             ColorRGB color;
             if (!CategoryAtIndex(i, name, color))
                 return false;
-            SetCategoryVisibleByIndex(i, !gCalendar->IsCategoryVisible(name));
+
+            // Toggle on mouse-up, only if still inside the row.
+            Rect row;
+            row.top = top;
+            row.bottom = top + kSidebarRowHeight;
+            row.left = kSidebarCheckLeft;
+            row.right = gSidebarWidth - kSplitterWidth;
+            Point m = clickPoint;
+            while (StillDown())
+                GetMouse(&m);
+            GetMouse(&m);
+            if (PtInRect(m, &row))
+                SetCategoryVisibleByIndex(i, !gCalendar->IsCategoryVisible(name));
             return true;
         }
     }
@@ -1144,7 +1159,7 @@ static void DrawSidebar()
 static short MiniCalendarTop()
 {
     short listBottom = SidebarRowTop((int)gCalendar->GetCategories().size());
-    return listBottom + 20 - kSidebarRowGap;
+    return listBottom + 20;
 }
 
 static void SetupMiniCalendarButtons()
@@ -1512,8 +1527,11 @@ static void HandleWindowEvent(EventRecord *event)
                     }
                     else if (ref >= kCheckboxRefConBase)
                     {
-                        SetCategoryVisibleByIndex((int)(ref - kCheckboxRefConBase),
-                                                  !GetControlValue(control));
+                        int idx = (int)(ref - kCheckboxRefConBase);
+                        std::string cname;
+                        ColorRGB ccolor;
+                        if (CategoryAtIndex(idx, cname, ccolor))
+                            SetCategoryVisibleByIndex(idx, !gCalendar->IsCategoryVisible(cname));
                     }
                     else
                     {

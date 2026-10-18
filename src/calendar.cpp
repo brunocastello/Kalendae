@@ -49,13 +49,13 @@ void Calendar::LoadFromPreferences()
 
     Event trip("Weekend Trip", Date(mCurrentDate.year, mCurrentDate.month, 15),
                Date(mCurrentDate.year, mCurrentDate.month, 16));
-    trip.SetCategory("Personal");
+    trip.SetCategory("Home");
     trip.SetAllDay(true);
     AddEvent(trip);
 
     Event meetup("Retro Meetup", Date(mCurrentDate.year, mCurrentDate.month, 22),
                  Date(mCurrentDate.year, mCurrentDate.month, 22));
-    meetup.SetCategory("Retro");
+    meetup.SetCategory("Home");
     meetup.SetStartMinute(18 * 60);
     meetup.SetEndMinute(20 * 60);
     AddEvent(meetup);
@@ -222,10 +222,8 @@ void Calendar::ProcessBackgroundTasks()
 void Calendar::InitializeDefaultCategories()
 {
     // Set up default color categories
-    mCategories["Work"] = ColorRGB(255, 59, 48);    // Apple red
-    mCategories["Personal"] = ColorRGB(0, 122, 255);   // Apple blue
-    mCategories["Retro"] = ColorRGB(52, 199, 89);   // Apple green
-    mCategories["Vintage"] = ColorRGB(255, 149, 0);   // Apple orange
+    mCategories["Home"] = ColorRGB(0, 122, 255);   // Apple blue
+    mCategories["Work"] = ColorRGB(255, 59, 48);   // Apple red
 }
 
 void Calendar::CheckForUpcomingReminders()
