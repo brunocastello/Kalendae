@@ -455,7 +455,7 @@ D1, D2, D4, D6 and D8 were confirmed by the user. D3, D5 and D7 take the recomme
 - [ ] T2d popover tail (custom WDEF, polish)
 - [x] T3 delete (reviewed; fix-up 3aea0a9)
 - [x] T4 filtering (reviewed; fix-up b0dacc5, Home/Work per D8)
-- [ ] T5 persistence
+- [x] T5 persistence
 - [ ] T6 import/export
 - [ ] T7 today + nav
 - [ ] T8 recurrence

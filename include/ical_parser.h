@@ -1,7 +1,9 @@
 /*
  * Kalendae - Classic Mac OS 9 Calendar Application
  *
- * iCalendar (.ics) file parser interface
+ * iCalendar (.ics) parser and writer interface. Buffer based and free of
+ * Toolbox calls (the GMT offset and "now" are passed in), so it can be
+ * compiled and tested on a host.
  */
 
 #ifndef ICAL_PARSER_H
@@ -10,26 +12,23 @@
 #include <string>
 #include <vector>
 #include "event.h"
-#include "calendar.h"
 
 class ICALParser
 {
 public:
-    ICALParser();
-    ~ICALParser();
+    // Parses UTF-8 iCalendar text into events (IDs left 0; text converted to
+    // MacRoman). gmtOffsetSeconds: local = UTC + offset. Malformed events
+    // (no DTSTART) are skipped.
+    std::vector<Event> Parse(const std::string& utf8Text, long gmtOffsetSeconds);
 
-    // Parse iCalendar file and return list of events
-    std::vector<Event> ParseFile(const std::string& filename);
-
-    // Export calendar data to iCalendar format
-    void ExportCalendar(const Calendar& calendar, const std::string& filename);
-
-private:
-    // Parse date string from iCalendar format (YYYYMMDDTHHMMSS)
-    Date ParseDate(const std::string& dateString);
-
-    // Helper methods for parsing different iCalendar properties
-    std::string GetPropertyValue(const std::string& line, const std::string& property);
+    // Writes UTF-8 iCalendar text with CRLF line ends and 75-octet folding.
+    // utcNowMacSeconds (seconds since 1904-01-01, UTC) stamps DTSTAMP.
+    std::string Serialize(const std::vector<Event>& events, long gmtOffsetSeconds,
+                          unsigned long utcNowMacSeconds);
 };
+
+// MacRoman <-> UTF-8. Unmappable code points and invalid UTF-8 become '?'.
+std::string MacRomanToUTF8(const std::string& macRoman);
+std::string UTF8ToMacRoman(const std::string& utf8);
 
 #endif // ICAL_PARSER_H

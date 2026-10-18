@@ -17,7 +17,7 @@
 #include <cstdio>
 #include <cstring>
 #include "calendar.h"
-#include "ical_parser.h"
+#include "ical_io.h"
 #include "ui_renderer.h"
 #include "event_dialog.h"
 
@@ -152,9 +152,13 @@ static void HandleTimeGridScrollClick(ControlHandle control, short part, Point c
 static void HandleContentClick(EventRecord *event, Point clickPoint);
 static void TrackSidebarResize();
 static void TrackWindowResize(WindowPtr window, Point startPoint);
-static bool GetPrefsFileSpec(FSSpec *spec);
-static void SaveWindowPrefs();
-static bool LoadWindowPrefs(Rect *outRect, short *outSidebarWidth);
+static bool GetPrefsFolderSpec(ConstStr255Param name, FSSpec *spec);
+static void MarkWindowPrefsDirty();
+static bool SavePrefs();
+static bool LoadPrefs(Rect *outRect, short *outSidebarWidth);
+static void LoadEvents();
+static bool SaveEvents();
+static void SaveIfDirty();
 static void QuitApp();
 static void UpdateMenuStates();
 static void SelectEvent(unsigned long id, const Date& date);
@@ -185,11 +189,12 @@ int main()
     // Initialize the application
     SetupApplication();
 
-    // Load calendar data from preferences
-    gCalendar->LoadFromPreferences();
+    // Load events from the events file (preferences, including the
+    // calendar list, were already loaded by SetupApplication)
+    LoadEvents();
 
     // The sidebar checkboxes mirror the category list, so they can only
-    // be built once LoadFromPreferences has populated it. The mini
+    // be built once the prefs and the events have populated it. The mini
     // calendar's nav buttons are positioned below that list, so they have
     // the same ordering requirement.
     SetupSidebar();
@@ -204,6 +209,9 @@ int main()
         {
             HandleEvent(&event);
         }
+
+        // Write out whatever the last event changed
+        SaveIfDirty();
 
         // Handle any background tasks
         gCalendar->ProcessBackgroundTasks();
@@ -245,7 +253,10 @@ static void SetupApplication()
     windowRect.bottom = top + windowHeight;
     windowRect.right = left + windowWidth;
 
-    LoadWindowPrefs(&windowRect, &gSidebarWidth);
+    // Month is the default view; a saved prefs file overrides it, along
+    // with the calendar list, before anything is drawn.
+    gCalendar->SetCurrentView(MonthView);
+    LoadPrefs(&windowRect, &gSidebarWidth);
 
     gMainWindow = NewCWindow(NULL, &windowRect, "\pKalendae",
                               true, documentProc, (WindowPtr)-1L, true, 0);
@@ -254,7 +265,6 @@ static void SetupApplication()
     ShowWindow(gMainWindow);
 
     gUIRenderer->Initialize(gMainWindow);
-    gCalendar->SetCurrentView(MonthView);
 
     SetupToolbar();
 }
@@ -537,7 +547,7 @@ static void TrackSidebarResize()
     RebuildControls();
     InvalRect(&winRect);
 
-    SaveWindowPrefs();
+    MarkWindowPrefsDirty();
 }
 
 static void TrackWindowResize(WindowPtr window, Point startPoint)
@@ -560,7 +570,7 @@ static void TrackWindowResize(WindowPtr window, Point startPoint)
     SetPort(window);
     InvalRect(&window->portRect);
 
-    SaveWindowPrefs();
+    MarkWindowPrefsDirty();
 }
 
 // Real classic document windows have a ~19px title bar above portRect's
@@ -569,39 +579,62 @@ static void TrackWindowResize(WindowPtr window, Point startPoint)
 // content area.
 static const short kTitleBarHeight = 19;
 
-struct WindowPrefsData
-{
-    short left, top, width, height;
-    short sidebarWidth;
-};
+// Prefs file layout (big-endian shorts), version 2:
+//   short version, left, top, width, height, sidebarWidth, lastView, calendarCount
+//   calendarCount x { Str63 name[64]; uchar r, g, b, visible }
+// Version 1 was just the five window shorts (10 bytes, no version field).
+static const short kPrefsVersion = 2;
+static const size_t kPrefsV1Size = 10;
+static const size_t kPrefsHeaderSize = 16;
+static const size_t kPrefsCalendarSize = 68;
+static const short kMaxPrefsCalendars = 64;
 
-// Fills in an FSSpec for "Kalendae Preferences" inside the Preferences
-// folder. Per Inside Macintosh, FSMakeFSSpec fills the spec in and
-// returns fnfErr when the file doesn't exist yet -- that's expected the
-// first time this app runs and is not a failure the caller needs to
-// check for.
-static bool GetPrefsFileSpec(FSSpec *spec)
+static const unsigned long kSaveRetryTicks = 300;   // ~5 s between failed attempts
+static bool gEventsRetryPending = false;
+static bool gPrefsRetryPending = false;
+static unsigned long gEventsRetryTick = 0;
+static unsigned long gPrefsRetryTick = 0;
+
+// Fills in an FSSpec for a file inside the Preferences folder. Per Inside
+// Macintosh, FSMakeFSSpec fills the spec in and returns fnfErr when the
+// file doesn't exist yet -- that's expected the first time this app runs
+// and is not a failure the caller needs to check for.
+static bool GetPrefsFolderSpec(ConstStr255Param name, FSSpec *spec)
 {
     short vRefNum;
     long dirID;
     if (FindFolder(-1, kPreferencesFolderType, true, &vRefNum, &dirID) != noErr)
         return false;
 
-    FSMakeFSSpec(vRefNum, dirID, "\pKalendae Preferences", spec);
+    FSMakeFSSpec(vRefNum, dirID, name, spec);
     return true;
 }
 
-static void SaveWindowPrefs()
+static void PutShort(std::string& s, short v)
 {
+    s += (char)((v >> 8) & 0xFF);
+    s += (char)(v & 0xFF);
+}
+
+static short GetShortAt(const std::string& s, size_t pos)
+{
+    return (short)(((unsigned char)s[pos] << 8) | (unsigned char)s[pos + 1]);
+}
+
+// Window moves and resizes just flag the prefs; the main loop writes them.
+static void MarkWindowPrefsDirty()
+{
+    gCalendar->MarkPrefsDirty();
+}
+
+static bool SavePrefs()
+{
+    if (!gMainWindow)
+        return false;
+
     FSSpec spec;
-    if (!GetPrefsFileSpec(&spec))
-        return;
-
-    FSpCreate(&spec, 'KALE', 'pref', smSystemScript); // dupFNErr if it already exists is fine
-
-    short refNum;
-    if (FSpOpenDF(&spec, fsWrPerm, &refNum) != noErr)
-        return;
+    if (!GetPrefsFolderSpec("\pKalendae Preferences", &spec))
+        return false;
 
     SetPort(gMainWindow);
     Point contentTopLeft;
@@ -609,60 +642,197 @@ static void SaveWindowPrefs()
     contentTopLeft.v = 0;
     LocalToGlobal(&contentTopLeft);
 
-    WindowPrefsData prefs;
-    prefs.left = contentTopLeft.h;
-    prefs.top = contentTopLeft.v - kTitleBarHeight;
-    prefs.width = gMainWindow->portRect.right - gMainWindow->portRect.left;
-    prefs.height = gMainWindow->portRect.bottom - gMainWindow->portRect.top;
-    prefs.sidebarWidth = gSidebarWidth;
+    const std::map<std::string, ColorRGB>& categories = gCalendar->GetCategories();
+    short calendarCount = (short)categories.size();
+    if (calendarCount > kMaxPrefsCalendars)
+        calendarCount = kMaxPrefsCalendars;
 
-    long count = sizeof(prefs);
-    SetFPos(refNum, fsFromStart, 0);
-    FSWrite(refNum, &count, &prefs);
-    SetEOF(refNum, count);
-    FSClose(refNum);
-}
+    std::string data;
+    PutShort(data, kPrefsVersion);
+    PutShort(data, contentTopLeft.h);
+    PutShort(data, contentTopLeft.v - kTitleBarHeight);
+    PutShort(data, gMainWindow->portRect.right - gMainWindow->portRect.left);
+    PutShort(data, gMainWindow->portRect.bottom - gMainWindow->portRect.top);
+    PutShort(data, gSidebarWidth);
+    PutShort(data, (short)gCalendar->GetCurrentView());
+    PutShort(data, calendarCount);
 
-static bool LoadWindowPrefs(Rect *outRect, short *outSidebarWidth)
-{
-    FSSpec spec;
-    if (!GetPrefsFileSpec(&spec))
-        return false;
-
-    short refNum;
-    if (FSpOpenDF(&spec, fsRdPerm, &refNum) != noErr)
-        return false;
-
-    WindowPrefsData prefs;
-    long count = sizeof(prefs);
-    OSErr err = FSRead(refNum, &count, &prefs);
-    FSClose(refNum);
-
-    if (err != noErr || count != sizeof(prefs))
-        return false;
-
-    if (prefs.width < kWindowMinWidth || prefs.height < kWindowMinHeight)
-        return false;
-
-    outRect->left = prefs.left;
-    outRect->top = prefs.top;
-    outRect->right = (short)(prefs.left + prefs.width);
-    outRect->bottom = (short)(prefs.top + prefs.height);
-
-    if (prefs.sidebarWidth >= kSidebarMinWidth && prefs.sidebarWidth <= kSidebarMaxWidth)
+    short written = 0;
+    for (std::map<std::string, ColorRGB>::const_iterator it = categories.begin();
+         it != categories.end() && written < calendarCount; ++it, ++written)
     {
-        *outSidebarWidth = prefs.sidebarWidth;
+        std::string name = it->first;
+        if (name.size() > 63)
+            name.resize(63);
+        char field[64];
+        memset(field, 0, sizeof(field));
+        field[0] = (char)name.size();
+        memcpy(&field[1], name.data(), name.size());
+        data.append(field, sizeof(field));
+        data += (char)it->second.r;
+        data += (char)it->second.g;
+        data += (char)it->second.b;
+        data += (char)(gCalendar->IsCategoryVisible(it->first) ? 1 : 0);
     }
 
+    if (WriteStringToFile(spec, data, 'pref', 'KALE') != noErr)
+        return false;
+    gCalendar->ClearPrefsDirty();
     return true;
 }
 
+// Reads the prefs file: window geometry (returned), last view and calendar
+// list (applied to gCalendar; a non-empty list replaces the defaults). Any
+// inconsistency leaves the defaults alone.
+static bool LoadPrefs(Rect *outRect, short *outSidebarWidth)
+{
+    FSSpec spec;
+    if (!GetPrefsFolderSpec("\pKalendae Preferences", &spec))
+        return false;
+
+    std::string data;
+    if (ReadFileToString(spec, data) != noErr)
+        return false;
+
+    size_t pos;
+    short calendarCount = 0;
+    short lastView = -1;
+    if (data.size() == kPrefsV1Size)
+    {
+        pos = 0;
+    }
+    else if (data.size() >= kPrefsHeaderSize && GetShortAt(data, 0) == kPrefsVersion)
+    {
+        pos = 2;
+        lastView = GetShortAt(data, 12);
+        calendarCount = GetShortAt(data, 14);
+        if (calendarCount < 0 || calendarCount > kMaxPrefsCalendars ||
+            data.size() != kPrefsHeaderSize + (size_t)calendarCount * kPrefsCalendarSize)
+            return false;
+    }
+    else
+    {
+        return false;
+    }
+
+    short left = GetShortAt(data, pos);
+    short top = GetShortAt(data, pos + 2);
+    short width = GetShortAt(data, pos + 4);
+    short height = GetShortAt(data, pos + 6);
+    short sidebarWidth = GetShortAt(data, pos + 8);
+
+    // Validate the calendar list before touching the model
+    for (short i = 0; i < calendarCount; i++)
+    {
+        size_t at = kPrefsHeaderSize + (size_t)i * kPrefsCalendarSize;
+        unsigned char nameLen = (unsigned char)data[at];
+        if (nameLen == 0 || nameLen > 63)
+            return false;
+    }
+
+    if (width >= kWindowMinWidth && height >= kWindowMinHeight)
+    {
+        outRect->left = left;
+        outRect->top = top;
+        outRect->right = (short)(left + width);
+        outRect->bottom = (short)(top + height);
+
+        if (sidebarWidth >= kSidebarMinWidth && sidebarWidth <= kSidebarMaxWidth)
+            *outSidebarWidth = sidebarWidth;
+    }
+
+    if (lastView >= 0 && lastView <= 3)
+        gCalendar->SetCurrentView((ViewType)lastView);
+
+    if (calendarCount > 0)
+    {
+        gCalendar->ClearCategories();
+        for (short i = 0; i < calendarCount; i++)
+        {
+            size_t at = kPrefsHeaderSize + (size_t)i * kPrefsCalendarSize;
+            std::string name(data, at + 1, (unsigned char)data[at]);
+            gCalendar->AddCategory(name, ColorRGB((unsigned char)data[at + 64],
+                                                  (unsigned char)data[at + 65],
+                                                  (unsigned char)data[at + 66]));
+            gCalendar->SetCategoryVisible(name, data[at + 67] != 0);
+        }
+    }
+
+    gCalendar->ClearPrefsDirty();
+    return true;
+}
+
+// local = UTC + offset, from the Date & Time control panel's location
+static long GetGMTOffsetSeconds()
+{
+    MachineLocation loc;
+    ReadLocation(&loc);
+    long delta = loc.u.gmtDelta & 0x00FFFFFF;   // 24-bit signed seconds
+    if (delta & 0x00800000)
+        delta -= 0x01000000;
+    return delta;
+}
+
+// A missing or unreadable events file just means an empty calendar.
+static void LoadEvents()
+{
+    FSSpec spec;
+    if (GetPrefsFolderSpec("\pKalendae Events", &spec))
+    {
+        std::string text;
+        if (ReadFileToString(spec, text) == noErr)
+            gCalendar->LoadEventsFromText(text, GetGMTOffsetSeconds());
+    }
+    gCalendar->ClearDirty();
+}
+
+static bool SaveEvents()
+{
+    FSSpec spec;
+    if (!GetPrefsFolderSpec("\pKalendae Events", &spec))
+        return false;
+
+    unsigned long secs = 0;
+    GetDateTime(&secs);
+    long offset = GetGMTOffsetSeconds();
+    std::string text = gCalendar->SerializeEvents(offset, (unsigned long)((long)secs - offset));
+
+    if (WriteStringToFile(spec, text, 'TEXT', 'KALE') != noErr)
+        return false;
+    gCalendar->ClearDirty();
+    return true;
+}
+
+// Called every pass of the main loop. A failed write keeps the dirty flag
+// and is retried no more than once per kSaveRetryTicks.
+static void SaveIfDirty()
+{
+    unsigned long now = TickCount();
+
+    if (gCalendar->IsDirty() &&
+        (!gEventsRetryPending || (long)(now - gEventsRetryTick) >= 0))
+    {
+        gEventsRetryPending = !SaveEvents();
+        gEventsRetryTick = now + kSaveRetryTicks;
+    }
+
+    if (gCalendar->IsPrefsDirty() &&
+        (!gPrefsRetryPending || (long)(now - gPrefsRetryTick) >= 0))
+    {
+        gPrefsRetryPending = !SavePrefs();
+        gPrefsRetryTick = now + kSaveRetryTicks;
+    }
+}
+
 // Single path to quit through, so every trigger (File > Quit, Cmd-Q, the
-// close box) saves window prefs first rather than relying on each call
-// site to remember to.
+// close box) saves first rather than relying on each call site to
+// remember to.
 static void QuitApp()
 {
-    SaveWindowPrefs();
+    if (gCalendar->IsDirty())
+        SaveEvents();
+    gCalendar->MarkPrefsDirty();    // window position may have changed
+    SavePrefs();
     ExitToShell();
 }
 
@@ -1302,6 +1472,7 @@ static void SwitchToView(ViewType view)
 {
     ViewType previous = gCalendar->GetCurrentView();
     gCalendar->SetCurrentView(view);
+    gCalendar->MarkPrefsDirty();
     // Only a fresh entry into the time grid resets the scroll position.
     if ((view == DayView || view == WeekView) &&
         (previous == MonthView || previous == YearView))
@@ -1564,7 +1735,7 @@ static void HandleWindowEvent(EventRecord *event)
             Rect dragBounds = qd.screenBits.bounds;
             dragBounds.top += 20; // stay clear of the menu bar
             DragWindow(window, event->where, &dragBounds);
-            SaveWindowPrefs();
+            MarkWindowPrefsDirty();
             break;
         }
 

@@ -17,6 +17,7 @@ add_application(Kalendae
     src/main.cpp
     src/calendar.cpp
     src/ical_parser.cpp
+    src/ical_io.cpp
     src/ui_renderer.cpp
     src/event.cpp
     src/event_dialog.cpp

@@ -46,9 +46,11 @@ public:
     Calendar();
     ~Calendar();
 
-    // Calendar data management
-    void LoadFromPreferences();
-    void SaveToPreferences();
+    // Persistence (iCalendar text; the caller does the file I/O).
+    // LoadEventsFromText adds the parsed events through AddEvent, auto-adding
+    // calendars for unknown categories, and leaves the events clean.
+    bool LoadEventsFromText(const std::string& utf8, long gmtOffsetSeconds);
+    std::string SerializeEvents(long gmtOffsetSeconds, unsigned long utcNowMacSeconds) const;
 
     // Event management
     unsigned long AddEvent(const Event& event);   // returns the assigned ID
@@ -68,9 +70,13 @@ public:
     void SetCategoryVisible(const std::string& name, bool visible);
     bool IsCategoryVisible(const std::string& name) const;
 
-    // Dirty tracking
+    // Dirty tracking: events live in the events file, while calendars
+    // (visibility, colours) and the view live in the preferences file.
     bool IsDirty() const { return mDirty; }
     void ClearDirty() { mDirty = false; }
+    bool IsPrefsDirty() const { return mPrefsDirty; }
+    void ClearPrefsDirty() { mPrefsDirty = false; }
+    void MarkPrefsDirty() { mPrefsDirty = true; }
 
     static Date Today();
 
@@ -96,8 +102,18 @@ public:
     void AddCategory(const std::string& name, const ColorRGB& color)
     {
         mCategories[name] = color;
-        mDirty = true;
+        mPrefsDirty = true;
     }
+
+    // Drops every calendar (used when the preferences file supplies its own list)
+    void ClearCategories()
+    {
+        mCategories.clear();
+        mCategoryVisible.clear();
+    }
+
+    // Next colour of the Apple palette cycle not yet used by a calendar
+    ColorRGB NextPaletteColor() const;
 
     const std::map<std::string, ColorRGB>& GetCategories() const
     {
@@ -112,6 +128,7 @@ private:
     std::map<std::string, bool> mCategoryVisible;
     unsigned long mNextID;
     bool mDirty;
+    bool mPrefsDirty;
 
     void AppendOccurrences(std::vector<Occurrence>& out, const Date& date) const;
 };

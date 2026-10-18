@@ -14,7 +14,7 @@
 
 // Calendar implementation
 Calendar::Calendar()
-    : mCurrentView(DayView), mCurrentDate(Today()), mNextID(1), mDirty(false)
+    : mCurrentView(DayView), mCurrentDate(Today()), mNextID(1), mDirty(false), mPrefsDirty(false)
 {
     InitializeDefaultCategories();
 }
@@ -33,38 +33,57 @@ Date Calendar::Today()
     return Date(rec.year, rec.month, rec.day);
 }
 
-void Calendar::LoadFromPreferences()
+bool Calendar::LoadEventsFromText(const std::string& utf8, long gmtOffsetSeconds)
 {
-    // Load calendar configuration and events from preferences
-    // This would typically read from System Folder:Preferences
+    ICALParser parser;
+    std::vector<Event> parsed = parser.Parse(utf8, gmtOffsetSeconds);
 
-    // A few sample events in the current month so the grid has something
-    // to show before real .ics import is wired up.
-    Event meeting("Team Meeting", Date(mCurrentDate.year, mCurrentDate.month, 5),
-                  Date(mCurrentDate.year, mCurrentDate.month, 5));
-    meeting.SetCategory("Work");
-    meeting.SetStartMinute(10 * 60);
-    meeting.SetEndMinute(11 * 60);
-    AddEvent(meeting);
+    for (size_t i = 0; i < parsed.size(); i++)
+    {
+        Event& e = parsed[i];
+        if (e.GetCategory().empty() && !mCategories.empty())
+            e.SetCategory(mCategories.find("Home") != mCategories.end() ?
+                          std::string("Home") : mCategories.begin()->first);
+        if (!e.GetCategory().empty() && mCategories.find(e.GetCategory()) == mCategories.end())
+            AddCategory(e.GetCategory(), NextPaletteColor());   // visible by default
+        AddEvent(e);
+    }
 
-    Event trip("Weekend Trip", Date(mCurrentDate.year, mCurrentDate.month, 15),
-               Date(mCurrentDate.year, mCurrentDate.month, 16));
-    trip.SetCategory("Home");
-    trip.SetAllDay(true);
-    AddEvent(trip);
-
-    Event meetup("Retro Meetup", Date(mCurrentDate.year, mCurrentDate.month, 22),
-                 Date(mCurrentDate.year, mCurrentDate.month, 22));
-    meetup.SetCategory("Home");
-    meetup.SetStartMinute(18 * 60);
-    meetup.SetEndMinute(20 * 60);
-    AddEvent(meetup);
+    mDirty = false;
+    return !parsed.empty();
 }
 
-void Calendar::SaveToPreferences()
+std::string Calendar::SerializeEvents(long gmtOffsetSeconds, unsigned long utcNowMacSeconds) const
 {
-    // Save calendar configuration and events to preferences
-    // This would typically write to System Folder:Preferences
+    ICALParser parser;
+    return parser.Serialize(mEvents, gmtOffsetSeconds, utcNowMacSeconds);
+}
+
+ColorRGB Calendar::NextPaletteColor() const
+{
+    // Apple palette: red, orange, yellow, green, blue, purple, brown
+    static const unsigned char palette[7][3] = {
+        {255, 59, 48}, {255, 149, 0}, {255, 204, 0}, {52, 199, 89},
+        {0, 122, 255}, {175, 82, 222}, {162, 132, 94}
+    };
+    for (int i = 0; i < 7; i++)
+    {
+        bool used = false;
+        for (std::map<std::string, ColorRGB>::const_iterator it = mCategories.begin();
+             it != mCategories.end(); ++it)
+        {
+            if (it->second.r == palette[i][0] && it->second.g == palette[i][1] &&
+                it->second.b == palette[i][2])
+            {
+                used = true;
+                break;
+            }
+        }
+        if (!used)
+            return ColorRGB(palette[i][0], palette[i][1], palette[i][2]);
+    }
+    int n = (int)(mCategories.size() % 7);
+    return ColorRGB(palette[n][0], palette[n][1], palette[n][2]);
 }
 
 unsigned long Calendar::AddEvent(const Event& event)
@@ -135,7 +154,7 @@ void Calendar::AddExDate(unsigned long id, const Date& date)
 void Calendar::SetCategoryVisible(const std::string& name, bool visible)
 {
     mCategoryVisible[name] = visible;
-    mDirty = true;
+    mPrefsDirty = true;
 }
 
 bool Calendar::IsCategoryVisible(const std::string& name) const
