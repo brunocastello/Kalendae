@@ -14,15 +14,6 @@
 #include <Events.h>
 #include <Processes.h>
 #include <OSUtils.h>
-#if __has_include(<Script.h>)
-#include <Script.h>
-#elif __has_include(<Scripts.h>)
-#include <Scripts.h>
-#elif __has_include(<Locations.h>)
-#include <Locations.h>
-#elif __has_include(<DateTimeUtils.h>)
-#include <DateTimeUtils.h>
-#endif
 #include <cstdio>
 #include <cstring>
 #include "calendar.h"
@@ -770,6 +761,21 @@ static bool LoadPrefs(Rect *outRect, short *outSidebarWidth)
     gCalendar->ClearPrefsDirty();
     return true;
 }
+
+// Multiversal has no declaration for ReadLocation (the Date & Time control
+// panel's location, kept in extended PRAM), so declare it and its struct here;
+// InterfaceLib exports the routine.
+struct MachineLocation
+{
+    long latitude;
+    long longitude;
+    union
+    {
+        char dlsDelta;
+        long gmtDelta;
+    } u;
+};
+extern "C" void ReadLocation(MachineLocation *loc);
 
 // local = UTC + offset, from the Date & Time control panel's location
 static long GetGMTOffsetSeconds()
