@@ -615,9 +615,11 @@ static bool FinishEvent(const EventBuilder& b, Event& e)
     return true;
 }
 
-std::vector<Event> ICALParser::Parse(const std::string& utf8Text, long gmtOffsetSeconds)
+std::vector<Event> ICALParser::Parse(const std::string& utf8Text, long gmtOffsetSeconds, std::string* outCalName)
 {
     std::vector<Event> result;
+    if (outCalName)
+        outCalName->clear();
 
     size_t pos = 0;
     if (utf8Text.size() >= 3 && (unsigned char)utf8Text[0] == 0xEF &&
@@ -691,6 +693,15 @@ std::vector<Event> ICALParser::Parse(const std::string& utf8Text, long gmtOffset
             {
                 inCalendar = false;
             }
+            continue;
+        }
+
+        if (skipDepth == 0 && !inEvent && inCalendar && outCalName &&
+            outCalName->empty() && line.name == "X-WR-CALNAME")
+        {
+            *outCalName = Trim(TextValue(line.value));
+            if (outCalName->size() > 63)
+                outCalName->resize(63);
             continue;
         }
 

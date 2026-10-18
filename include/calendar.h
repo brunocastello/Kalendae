@@ -52,6 +52,11 @@ public:
     // false if the text looks like it held events (or isn't iCalendar at
     // all) but none could be read, so the caller can keep the file safe.
     bool LoadEventsFromText(const std::string& utf8, long gmtOffsetSeconds);
+    // Merges parsed events (File > Import). Events whose non-empty UID is
+    // already present are skipped. Category: the event's own, else calName,
+    // else the first calendar. Unknown calendars are added (visible).
+    void ImportEvents(const std::vector<Event>& events, const std::string& calName,
+                      int* added, int* skipped);
     std::string SerializeEvents(long gmtOffsetSeconds, unsigned long utcNowMacSeconds) const;
 
     // Event management

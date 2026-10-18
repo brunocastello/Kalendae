@@ -249,3 +249,26 @@ resource 'ALRT' (142) {
     },
     alertPositionMainScreen
 };
+
+/* Note alert: ParamText(^0 = text). Import results. */
+resource 'DITL' (143) {
+    {
+        {112, 258, 132, 324},
+        Button { enabled, "OK" };
+
+        {12, 70, 100, 324},
+        StaticText { disabled, "^0" };
+    }
+};
+
+resource 'ALRT' (143) {
+    {80, 100, 224, 440},
+    143,
+    {
+        OK, visible, silent,
+        OK, visible, silent,
+        OK, visible, silent,
+        OK, visible, silent
+    },
+    alertPositionMainScreen
+};

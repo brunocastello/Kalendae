@@ -67,6 +67,51 @@ bool Calendar::LoadEventsFromText(const std::string& utf8, long gmtOffsetSeconds
            upper.find("BEGIN:VEVENT") == std::string::npos;
 }
 
+void Calendar::ImportEvents(const std::vector<Event>& events, const std::string& calName,
+                            int* added, int* skipped)
+{
+    int nAdded = 0, nSkipped = 0;
+    for (size_t i = 0; i < events.size(); i++)
+    {
+        Event e(events[i]);
+        bool dup = false;
+        if (!e.GetUID().empty())
+        {
+            for (size_t j = 0; j < mEvents.size(); j++)
+                if (mEvents[j].GetUID() == e.GetUID())
+                {
+                    dup = true;
+                    break;
+                }
+        }
+        if (dup)
+        {
+            nSkipped++;
+            continue;
+        }
+        if (e.GetCategory().empty())
+        {
+            if (!calName.empty())
+                e.SetCategory(calName);
+            else if (!mCategories.empty())
+                e.SetCategory(mCategories.find("Home") != mCategories.end() ?
+                              std::string("Home") : mCategories.begin()->first);
+        }
+        if (e.GetCategory().size() > 63)
+            e.SetCategory(e.GetCategory().substr(0, 63));   // as AddCategory clamps
+        if (!e.GetCategory().empty() && mCategories.find(e.GetCategory()) == mCategories.end())
+            AddCategory(e.GetCategory(), NextPaletteColor());
+        AddEventInternal(e, false);
+        nAdded++;
+    }
+    if (nAdded > 0)
+        SortEvents();
+    if (added)
+        *added = nAdded;
+    if (skipped)
+        *skipped = nSkipped;
+}
+
 std::string Calendar::SerializeEvents(long gmtOffsetSeconds, unsigned long utcNowMacSeconds) const
 {
     ICALParser parser;

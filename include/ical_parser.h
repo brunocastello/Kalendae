@@ -18,8 +18,10 @@ class ICALParser
 public:
     // Parses UTF-8 iCalendar text into events (IDs left 0; text converted to
     // MacRoman). gmtOffsetSeconds: local = UTC + offset. Malformed events
-    // (no DTSTART) are skipped.
-    std::vector<Event> Parse(const std::string& utf8Text, long gmtOffsetSeconds);
+    // (no DTSTART) are skipped. If outCalName is given it receives the
+    // calendar-level X-WR-CALNAME (MacRoman, at most 63 characters) or "".
+    std::vector<Event> Parse(const std::string& utf8Text, long gmtOffsetSeconds,
+                             std::string* outCalName = NULL);
 
     // Writes UTF-8 iCalendar text with CRLF line ends and 75-octet folding.
     // utcNowMacSeconds (seconds since 1904-01-01, UTC) stamps DTSTAMP.

@@ -15,10 +15,13 @@
 #include <Processes.h>
 #include <OSUtils.h>
 #include <MacMemory.h>
+#include <Files.h>
+#include <StandardFile.h>
 #include <cstdio>
 #include <cstring>
 #include "calendar.h"
 #include "ical_io.h"
+#include "ical_parser.h"
 #include "ui_renderer.h"
 #include "event_dialog.h"
 
@@ -34,7 +37,9 @@ enum
 enum
 {
     kFileNewEventItem = 1,
-    kFileQuitItem = 3
+    kFileImportItem = 3,
+    kFileExportItem = 4,
+    kFileQuitItem = 6
 };
 
 enum
@@ -54,6 +59,7 @@ enum
     kConfirmRecurringAlertID = 130,
     kQuitSaveFailedAlertID = 141,
     kMessageAlertID = 142,
+    kNoteAlertID = 143,
     kMaxAlertTitle = 40
 };
 
@@ -129,6 +135,7 @@ static short gLastClickMinute = 0;
 // recurring event). Plain shorts: a static Date would need a constructor.
 static short gSelYear = 0, gSelMonth = 0, gSelDay = 0;
 static ModalFilterUPP gConfirmFilterUPP = NULL;
+static FileFilterUPP gImportFilterUPP = NULL;
 
 static const char* kMonthNames[] = {
     "January", "February", "March", "April", "May", "June",
@@ -176,6 +183,8 @@ static void EditEventWithID(unsigned long id, const Rect& anchorLocal);
 static void CreateEventWithInspector(Event& e, const Rect& anchorLocal);
 static void NewEventFromHit(const HitRegion& hit);
 static void NewEventAtNextHour();
+static void ImportEvents();
+static void ExportEvents();
 static void EditSelectedEvent();
 static void HandleEvent(EventRecord *event);
 static void HandleMenuChoice(long menuChoice);
@@ -1729,7 +1738,7 @@ static void SetupMenuBar()
 
     // File menu: New Event, then the one thing this app must reliably offer.
     menu = NewMenu(kFileMenuID, "\pFile");
-    AppendMenu(menu, "\pNew Event/N;(-;Quit/Q");
+    AppendMenu(menu, "\pNew Event/N;(-;Import\311;Export\311;(-;Quit/Q");
     InsertMenu(menu, 0);
 
     // Edit menu: the popover inspector handles Cut/Copy/Paste itself, so the
@@ -1753,10 +1762,136 @@ static void SetupMenuBar()
     DrawMenuBar();
 }
 
+// Standard File filter for Import: returns true to HIDE a file. Folders and
+// volumes always show; files show when they are 'TEXT' or end in ".ics".
+static pascal Boolean ImportFileFilter(CInfoPBPtr pb)
+{
+    if (pb->hFileInfo.ioFlAttrib & 0x10)
+        return false;
+    if (pb->hFileInfo.ioFlFndrInfo.fdType == 'TEXT')
+        return false;
+    const unsigned char* name = pb->hFileInfo.ioNamePtr;
+    if (name && name[0] >= 4)
+    {
+        unsigned char n = name[0];
+        if (name[n - 3] == '.' &&
+            (name[n - 2] | 0x20) == 'i' && (name[n - 1] | 0x20) == 'c' && (name[n] | 0x20) == 's')
+            return false;
+    }
+    return true;
+}
+
+// Shows a one-button note alert (ALRT 143; ^0 = text).
+static void ShowNoteAlert(const std::string& text)
+{
+    Str255 p;
+    size_t n = text.size() > 255 ? 255 : text.size();
+    p[0] = (unsigned char)n;
+    memcpy(&p[1], text.data(), n);
+    ParamText(p, "\p", "\p", "\p");
+    InitCursor();
+    NoteAlert(kNoteAlertID, NULL);
+    SetPort(gMainWindow);
+}
+
+static std::string ErrorText(const char* prefix, OSErr err, const char* suffix)
+{
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%d", (int)err);
+    return std::string(prefix) + buf + suffix;
+}
+
+// File > Import: merge the events of a chosen .ics file into the calendar.
+static void ImportEvents()
+{
+    if (!gImportFilterUPP)
+        gImportFilterUPP = NewFileFilterUPP(ImportFileFilter);
+
+    StandardFileReply reply;
+    InitCursor();
+    StandardGetFile(gImportFilterUPP, -1, NULL, &reply);
+    SetPort(gMainWindow);
+    if (!reply.sfGood)
+        return;
+
+    std::string text;
+    OSErr err = ReadFileToString(reply.sfFile, text);
+    if (err == memFullErr)
+    {
+        ShowMessageAlert("The file is too large to import into Kalendae's memory partition.");
+        return;
+    }
+    if (err != noErr)
+    {
+        ShowMessageAlert(ErrorText("The file couldn\325t be read (error ", err, ")."));
+        return;
+    }
+
+    ICALParser parser;
+    std::string calName;
+    std::vector<Event> parsed = parser.Parse(text, GetGMTOffsetSeconds(), &calName);
+    text.clear();
+
+    if (parsed.empty())
+    {
+        std::string fileName((const char*)&reply.sfFile.name[1], reply.sfFile.name[0]);
+        ShowNoteAlert("No events were found in \322" + fileName + "\323.");
+        return;
+    }
+
+    size_t calendarsBefore = gCalendar->GetCategories().size();
+    int added = 0, skipped = 0;
+    gCalendar->ImportEvents(parsed, calName, &added, &skipped);
+
+    // New calendars need sidebar checkboxes and swatches
+    if (gCalendar->GetCategories().size() != calendarsBefore)
+        RebuildControls();
+    RefreshAfterEdit();
+
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%d", added);
+    std::string msg = std::string("Imported ") + buf + (added == 1 ? " event." : " events.");
+    if (skipped > 0)
+    {
+        snprintf(buf, sizeof(buf), "%d", skipped);
+        msg += std::string(" ") + buf + (skipped == 1 ? " event was" : " events were") +
+               " already in Kalendae and " + (skipped == 1 ? "was" : "were") + " skipped.";
+    }
+    ShowNoteAlert(msg);
+}
+
+// File > Export: write every event (hidden calendars included) to a file.
+static void ExportEvents()
+{
+    StandardFileReply reply;
+    InitCursor();
+    StandardPutFile("\pExport calendar as:", "\pKalendae.ics", &reply);
+    SetPort(gMainWindow);
+    if (!reply.sfGood)
+        return;
+
+    unsigned long secs = 0;
+    GetDateTime(&secs);
+    long offset = GetGMTOffsetSeconds();
+    std::string text = gCalendar->SerializeEvents(offset, (unsigned long)((long)secs - offset));
+
+    OSErr err = WriteStringToFile(reply.sfFile, text, 'TEXT', 'KALE');
+    if (err != noErr)
+        ShowMessageAlert(ErrorText("The calendar couldn\325t be exported (error ", err, ")."));
+}
+
 static void UpdateMenuStates()
 {
     if (!gEventMenu || !gEditMenu)
         return;
+    MenuHandle fileMenu = GetMenuHandle(kFileMenuID);
+    if (fileMenu)
+    {
+        if (gCalendar->GetAllEvents().empty())
+            DisableItem(fileMenu, kFileExportItem);
+        else
+            EnableItem(fileMenu, kFileExportItem);
+    }
     if (gUIRenderer->GetSelectedEvent() != 0)
     {
         EnableItem(gEventMenu, kEventEditItem);
@@ -1812,6 +1947,14 @@ static void HandleMenuChoice(long menuChoice)
             if (menuItem == kFileNewEventItem)
             {
                 NewEventAtNextHour();
+            }
+            else if (menuItem == kFileImportItem)
+            {
+                ImportEvents();
+            }
+            else if (menuItem == kFileExportItem)
+            {
+                ExportEvents();
             }
             else if (menuItem == kFileQuitItem)
             {
