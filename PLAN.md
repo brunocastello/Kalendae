@@ -85,12 +85,36 @@ bool UIRenderer::HitTest(Point local, HitRegion* out) const;  // topmost (last-a
 - The selected event (`gSelectedEventID`) draws with an inverted or
   darker chip, matching Apple's selected-event look.
 
-### 1.4 Event inspector (DLOG/DITL 128, rewritten)
+### 1.4 Event inspector popover (DLOG/DITL 128, rewritten)
+This replaces both the old New Event dialog and the centred-inspector idea. It
+mirrors Apple Calendar's event popover. Mac OS 9 has no popover control, so the
+inspector is built like this (decided 2026-10-18):
+- **Window**: a borderless, shadowed dialog (`altDBoxProc`, so no title bar or
+  close box). It sits beside its **anchor rect** (the clicked event chip/block,
+  or the empty slot for a new event): 8px to the right of the anchor and
+  vertically centred on it. If that would go off the right edge of
+  `qd.screenBits.bounds`, it goes to the left. It is then clamped inside the
+  screen, below the menu bar.
+- **Behaviour**: it is driven by `ModalDialog` with a filter proc that copies the
+  popover's transient feel:
+  - mouseDown outside the dialog window = save and close (same as Return/OK);
+  - Escape or ⌘-period = cancel;
+  - Return/Enter = save, except when the Notes field is active, where Return
+    inserts a line break;
+  - Tab cycles the edit fields (standard Dialog Manager behaviour).
+- **New events**: they open with the title "New Event" pre-selected, so typing
+  replaces it, as in Apple Calendar. A new event that is closed with an unchanged
+  or empty title is still created as "New Event", as in Apple. Cancel discards it.
+- **Edits**: the event is loaded from `*FindEvent(id)` and saved with
+  `UpdateEvent` (see T1 review note: never rebuild it from a blank `Event`).
+- **The pointer tail** (the arrow pointing at the anchor) is *not* part of T2b.
+  It needs a custom WDEF. See T2d.
+
 The fields follow Apple Calendar's inspector order:
 
 | Item | Control | Notes |
 |---|---|---|
-| Title | EditText | Required. Empty title on OK = treat as Cancel for new, keep old for edit |
+| Title | EditText (larger, bold-looking: system font) | Pre-filled "New Event" for new events. Empty on save → "New Event" for new, keep old title for edit |
 | Location | EditText | |
 | All-day | CheckBox | Disables/greys time fields when on |
 | Starts: date | EditText `M/D/YYYY` | Validated on OK. Invalid → `StopAlert` + reselect field |
@@ -103,8 +127,9 @@ The fields follow Apple Calendar's inspector order:
 | Delete | Button, hidden for new events | → confirmation alert (T3) |
 | Cancel / OK | Buttons | OK is the default (bold ring via `SetDialogDefaultItem`) |
 
-The signature is `bool ShowEventInspector(Event& inOut, bool isNew)`, which
-returns the user's choice: `kInspectorSaved | kInspectorCancelled | kInspectorDeleted`.
+The signature is `short ShowEventInspector(Event& inOut, bool isNew, const Rect& anchorGlobal)`,
+which returns `kInspectorSaved | kInspectorCancelled | kInspectorDeleted`.
+`anchorGlobal` is the anchor rect in global coordinates.
 The dialog code moves out of `main.cpp` into a new `src/event_dialog.cpp` +
 `include/event_dialog.h` so `main.cpp` stops growing.
 
@@ -162,22 +187,48 @@ Split for implementers:
   (red-filled circle behind the day number, Apple-style).
   **Touch**: `include/ui_renderer.h`, `src/ui_renderer.cpp`, `src/main.cpp` (scroll-bar
   control creation/tracking only).
-- **T2b — Inspector**: §1.4. New `event_dialog.{h,cpp}`, DITL/DLOG 128
-  rewrite, CNTL/MENU resources for the 3 popups, add to `CMakeLists.txt`.
+- **T2b — Inspector popover**: §1.4 (popover placement, outside-click save,
+  Esc cancel, no tail). New `event_dialog.{h,cpp}`, DITL/DLOG 128 rewrite
+  (`altDBoxProc`), CNTL/MENU resources for the 3 popups, add to `CMakeLists.txt`.
+  The renderer exposes the hit region's rect so callers can pass it as the anchor.
   **Touch**: `include/event_dialog.h`, `src/event_dialog.cpp`,
   `Resources/Kalendae.r`, `CMakeLists.txt`, `src/main.cpp` (delete old
   `ShowNewEventDialog`).
 - **T2c — Wiring**: mouse routing in `HandleWindowEvent` uses `HitTest`.
   A single click selects an event (or clears the selection on an empty slot). A double-click
-  on an event opens the inspector (edit); a double-click on an empty slot
-  opens it for a new event at that date/time (Month = all-day, Day/Week = 1h at
-  the slot). Return and ⌘E open the selected event. File ▸ New Event (⌘N) creates
-  one at today/now, rounded to the next hour.
+  on an event opens the popover anchored to that chip/block (edit). A double-click
+  on an empty area opens a new-event popover anchored to that slot. This includes
+  the empty part of a day that already has events: chips sit on top of the day's
+  slot region, so a click that misses every chip hits the slot. New events from
+  Month are all-day; from Day/Week they are 1h at the half-hour slot.
+  Return and ⌘E open the selected event's popover. File ▸ New Event (⌘N) creates
+  one at the current date and the next whole hour, anchored to that slot if it is
+  visible and otherwise centred in the window.
   **Touch**: `src/main.cpp`
 - **Success (T2 overall)**: CI green. Create and edit work by
   double-click in Day, Week and Month. Edits persist in-session. Cancel
   changes nothing. The time grid scrolls. The Month double-click bug is gone
   (verified on a fresh artifact, per memory note).
+
+### T2d — Popover pointer tail (polish, after T2 is reviewed)
+- **Goal**: give the inspector popover Apple's callout tail, a small triangle
+  pointing at the anchor rect on whichever side the popover was placed. Write a
+  custom WDEF compiled into the app and registered at runtime. Use the
+  standard Retro68 approach: a `WDEF` resource holding a stub that jumps to
+  a `UniversalProcPtr` from `NewWindowDefUPP` (or `NewRoutineDescriptor`),
+  installed at startup. Implement `wDraw`, `wHit`, `wCalcRgns` (structure region
+  = rounded rect ∪ tail triangle, with a 1px Platinum-grey frame and a drop shadow),
+  `wNew` and `wDispose`. The tail side and offset go through the window's refCon or a
+  small struct passed via `SetWRefCon`.
+- **Fallback**: if the stub approach is unreliable under Mac OS 9's Mixed
+  Mode, keep `altDBoxProc` and drop T2d. Note why in this file.
+- **Touch**: `src/popover_wdef.cpp` (new), `include/popover_wdef.h` (new),
+  `src/event_dialog.cpp`, `Resources/Kalendae.r`, `CMakeLists.txt`
+- **Success**: CI green. The popover shows a tail pointing at the clicked event in
+  all three placements (right, left, clamped). There are no crashes when opening and closing
+  it repeatedly, or when it is dragged off-screen by its owner window moving
+  (the popover is modal, so it can't be). Hit-testing outside the shape still
+  counts as "outside" for save-and-close.
 
 ### T3 — Deletion with confirmation (Next-up #2)
 - **Goal**: The Delete/Backspace key (when no dialog is up), Edit ▸ Delete, Event ▸
@@ -290,6 +341,13 @@ comments.
 
 ---
 
+### Carry-over notes from reviews
+- **T2b**: build the edited event from `*FindEvent(id)` and not from a blank `Event`. `UpdateEvent` copies `mUID` verbatim, so a fresh `Event` would wipe the UID (T1 review #1).
+- **T5**: call `ClearDirty()` after loading. Category visibility goes to the prefs file, so give it its own prefs-dirty flag instead of `mDirty`. Otherwise every checkbox toggle rewrites the events file (T1 review #3).
+- **T8**: expand each RRULE once per event over the query range, not once per day. `GetOccurrencesInRange` is currently O(days × events) (T1 review #4).
+
+---
+
 ## 3. Per-task sub-agent protocol
 
 For each task (and sub-task) Tn:
@@ -338,8 +396,9 @@ D1, D2, D4 and D6 were confirmed by the user. D3, D5 and D7 take the recommendat
 
 - [x] D1–D7 answered
 - [x] T0 hotfix
-- [x] T1 foundation
-- [ ] T2a renderer / T2b inspector / T2c wiring
+- [x] T1 foundation (reviewed 2026-10-18, no blockers)
+- [ ] T2a renderer / T2b inspector popover / T2c wiring
+- [ ] T2d popover tail (custom WDEF, polish)
 - [ ] T3 delete
 - [ ] T4 filtering
 - [ ] T5 persistence
