@@ -14,6 +14,7 @@
 #include <Events.h>
 #include <Processes.h>
 #include <OSUtils.h>
+#include <Script.h>
 #include <cstdio>
 #include <cstring>
 #include "calendar.h"
