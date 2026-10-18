@@ -14,13 +14,21 @@
 #ifndef UI_RENDERER_H
 #define UI_RENDERER_H
 
-// Every classic-named Multiversal header (Quickdraw.h, Windows.h, ...) is
-// just a wrapper around one master Multiverse.h containing every Manager's
-// declarations, so <Windows.h> already brings in the List Manager too --
-// there is no separate ListMgr.h/Lists.h file to include.
 #include <Quickdraw.h>
 #include <Windows.h>
 #include "calendar.h"
+#include <vector>
+
+// One clickable rectangle registered while a view is drawn. eventID 0 is an
+// empty slot. minute: -1 = all-day slot (Month cells, all-day strip, Year
+// days), else minutes after midnight of the half-hour slot. r is window-local.
+struct HitRegion
+{
+    Rect r;
+    unsigned long eventID;
+    Date date;
+    short minute;
+};
 
 class UIRenderer
 {
@@ -31,46 +39,49 @@ public:
     // Initialize the renderer with a window
     bool Initialize(WindowPtr window);
 
-    // Render different calendar views
+    // Render different calendar views. Each clears and refills the hit map.
     void RenderDayView(const Calendar& calendar, const Rect& bounds);
     void RenderWeekView(const Calendar& calendar, const Rect& bounds);
     void RenderMonthView(const Calendar& calendar, const Rect& bounds);
     void RenderYearView(const Calendar& calendar, const Rect& bounds);
 
-    // Only valid to call while Month view is the one currently rendered
-    // (mMonthList is rebuilt/disposed on every RenderMonthView call, so it
-    // may be null or stale otherwise). Returns true, and fills outDate,
-    // only when localPt was a *double*-click on a valid day cell --
-    // LClick's own double-click detection, not hand-rolled timing logic.
-    bool HandleMonthClick(const Calendar& calendar, Point localPt, Date* outDate);
+    // Last-added match wins (chips are added after the slots under them).
+    bool HitTest(Point local, HitRegion* out) const;
+
+    // 0 = none. The selected chip/block is drawn highlighted.
+    void SetSelectedEvent(unsigned long id) { mSelectedEvent = id; }
+    unsigned long GetSelectedEvent() const { return mSelectedEvent; }
+
+    // Day/Week time grid scrolling. The grid is 24 hours of kHourHeight.
+    // GetTimeGridViewRect reserves 16px on the right of contentBounds for the
+    // scroll bar; the header/all-day heights come from the last render.
+    Rect GetTimeGridViewRect(const Rect& contentBounds) const;
+    short GetTimeGridMaxScroll(const Rect& contentBounds) const;
+    void SetTimeGridScroll(short px) { mTimeGridScroll = px; }
+    short GetTimeGridScroll() const { return mTimeGridScroll; }
+    short ScrollForMinute(short minute) const;
+    // Redraws only the scrolled hour area (used while tracking the scroll bar)
+    void RedrawTimeGrid(const Calendar& calendar, const Rect& contentBounds);
+
+    static const short kHourHeight = 22;
 
 private:
-    // Helper methods for different view rendering
-    void DrawDayViewHeader(const Date& date, const Rect& bounds);
-    void DrawDayViewGrid(const Calendar& calendar, const Date& date, const Rect& bounds);
-    void DrawEventsForDay(const Calendar& calendar, const Date& date, const Rect& bounds);
+    void RenderTimeGrid(const Calendar& calendar, const Rect& bounds, bool weekMode);
+    void DrawTimeGridHourArea(const Calendar& calendar, const Rect& bounds);
 
-    void DrawWeekViewHeader(const Calendar& calendar, const Rect& bounds);
-    void DrawWeekViewGrid(const Rect& bounds);
-    void DrawEventsForWeek(const Calendar& calendar, const Rect& bounds);
-
-    void DrawMonthViewHeader(const Calendar& calendar, const Rect& bounds);
-    void DrawMonthViewGrid(const Calendar& calendar, const Rect& bounds);
-    void DrawEventsForMonth(const Calendar& calendar, const Rect& bounds);
-
-    void DrawYearViewHeader(const Calendar& calendar, const Rect& bounds);
-    void DrawYearViewGrid(const Calendar& calendar, const Rect& bounds);
-    void DrawMiniMonth(int year, int month, const Rect& bounds);
+    void DrawMiniMonth(const Calendar& calendar, int year, int month, const Rect& bounds);
 
     // Window and rendering context
     WindowPtr mMainWindow;
     bool mIsInitialized;
 
-    // The month grid and day event list both use the real List Manager
-    // (standard Mac OS UI for any tabular display) instead of hand-drawn
-    // cells. Rebuilt on every render since row/column counts change.
-    ListHandle mMonthList;
-    ListHandle mDayList;
+    std::vector<HitRegion> mHits;
+    unsigned long mSelectedEvent;
+
+    short mTimeGridScroll;
+    short mHeaderHeight;   // title (+ column headers) height of the last time grid
+    short mAllDayHeight;   // all-day strip height of the last time grid
+    size_t mGridHitBase;   // mHits.size() before the scrollable hour area
 };
 
 #endif // UI_RENDERER_H

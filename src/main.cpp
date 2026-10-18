@@ -95,6 +95,21 @@ static const short kWindowMinHeight = 300;
 static const long kCheckboxRefConBase = 1000;
 static const long kPrevMonthRefCon = 2000;
 static const long kNextMonthRefCon = 2001;
+static const long kTimeGridScrollRefCon = 3000;
+
+// The Day/Week hour-grid scroll bar. Recreated by SetupTimeGridScrollBar
+// whenever RebuildControls tears the window's controls down.
+static ControlHandle gScrollBar = NULL;
+
+// Created lazily on first use (no global constructors; see above).
+static ControlActionUPP gScrollActionUPP = NULL;
+
+// Double-click detection state for HandleContentClick (POD only).
+static unsigned long gLastClickTicks = 0;
+static bool gLastClickValid = false;
+static unsigned long gLastClickEventID = 0;
+static int gLastClickYear = 0, gLastClickMonth = 0, gLastClickDay = 0;
+static short gLastClickMinute = 0;
 
 static const char* kMonthNames[] = {
     "January", "February", "March", "April", "May", "June",
@@ -115,6 +130,10 @@ static void ChangeMonth(int delta);
 static void SwitchToView(ViewType view);
 static Rect ContentBounds();
 static void RebuildControls();
+static void SetupTimeGridScrollBar();
+static void SyncTimeGridScrollBar();
+static void HandleTimeGridScrollClick(ControlHandle control, short part, Point clickPoint);
+static void HandleContentClick(EventRecord *event, Point clickPoint);
 static void TrackSidebarResize();
 static void TrackWindowResize(WindowPtr window, Point startPoint);
 static bool GetPrefsFileSpec(FSSpec *spec);
@@ -147,6 +166,7 @@ int main()
     // the same ordering requirement.
     SetupSidebar();
     SetupMiniCalendarButtons();
+    SetupTimeGridScrollBar();
 
     // Main event loop
     EventRecord event;
@@ -259,6 +279,172 @@ static void RebuildControls()
     SetupToolbar();
     SetupSidebar();
     SetupMiniCalendarButtons();
+    SetupTimeGridScrollBar();
+    SyncTimeGridScrollBar();
+}
+
+// Created hidden with a placeholder rect; SyncTimeGridScrollBar positions
+// it against the renderer's time-grid view rect and shows it in Day/Week.
+static void SetupTimeGridScrollBar()
+{
+    Rect r;
+    r.top = 0;
+    r.left = 0;
+    r.bottom = 100;
+    r.right = 16;
+    gScrollBar = NewControl(gMainWindow, &r, "\p", false, 0, 0, 0, scrollBarProc,
+                            kTimeGridScrollRefCon);
+}
+
+static void SyncTimeGridScrollBar()
+{
+    if (!gScrollBar)
+        return;
+
+    ViewType view = gCalendar->GetCurrentView();
+    if (view != DayView && view != WeekView)
+    {
+        if ((**gScrollBar).contrlVis)
+            HideControl(gScrollBar);
+        return;
+    }
+
+    Rect content = ContentBounds();
+    Rect viewRect = gUIRenderer->GetTimeGridViewRect(content);
+
+    Rect r;
+    r.top = viewRect.top - 1;
+    r.bottom = content.bottom - 15; // leave the grow icon alone
+    r.left = viewRect.right;
+    r.right = content.right;
+    if (r.bottom <= r.top + 32)
+        return;
+
+    const Rect& cur = (**gScrollBar).contrlRect;
+    if (cur.top != r.top || cur.left != r.left || cur.bottom != r.bottom || cur.right != r.right)
+    {
+        HideControl(gScrollBar);
+        MoveControl(gScrollBar, r.left, r.top);
+        SizeControl(gScrollBar, r.right - r.left, r.bottom - r.top);
+    }
+
+    short maxScroll = gUIRenderer->GetTimeGridMaxScroll(content);
+    short scroll = gUIRenderer->GetTimeGridScroll();
+    if (scroll > maxScroll) scroll = maxScroll;
+    if (scroll < 0) scroll = 0;
+    gUIRenderer->SetTimeGridScroll(scroll);
+
+    SetControlMaximum(gScrollBar, maxScroll);
+    SetControlValue(gScrollBar, scroll);
+    if (!(**gScrollBar).contrlVis)
+        ShowControl(gScrollBar);
+}
+
+static void ScrollTimeGridTo(short value)
+{
+    gUIRenderer->SetTimeGridScroll(value);
+    gUIRenderer->RedrawTimeGrid(*gCalendar, ContentBounds());
+}
+
+// Arrow/page tracking: runs repeatedly while the mouse is held down.
+static pascal void TimeGridScrollAction(ControlHandle control, short part)
+{
+    Rect viewRect = gUIRenderer->GetTimeGridViewRect(ContentBounds());
+    short pageStep = (short)(viewRect.bottom - viewRect.top - UIRenderer::kHourHeight);
+    if (pageStep < UIRenderer::kHourHeight)
+        pageStep = UIRenderer::kHourHeight;
+
+    short step = 0;
+    switch (part)
+    {
+        case inUpButton:   step = -UIRenderer::kHourHeight; break;
+        case inDownButton: step = UIRenderer::kHourHeight; break;
+        case inPageUp:     step = -pageStep; break;
+        case inPageDown:   step = pageStep; break;
+        default: return;
+    }
+
+    short oldValue = GetControlValue(control);
+    long newValue = (long)oldValue + step;
+    if (newValue < GetControlMinimum(control)) newValue = GetControlMinimum(control);
+    if (newValue > GetControlMaximum(control)) newValue = GetControlMaximum(control);
+    if (newValue == oldValue)
+        return;
+
+    SetControlValue(control, (short)newValue);
+    ScrollTimeGridTo((short)newValue);
+}
+
+static void HandleTimeGridScrollClick(ControlHandle control, short part, Point clickPoint)
+{
+    if (part == inThumb)
+    {
+        if (TrackControl(control, clickPoint, NULL))
+            ScrollTimeGridTo(GetControlValue(control));
+        return;
+    }
+
+    if (!gScrollActionUPP)
+        gScrollActionUPP = NewControlActionUPP(TimeGridScrollAction);
+    TrackControl(control, clickPoint, gScrollActionUPP);
+}
+
+// Hit-map driven clicks in the content area: single click selects an event
+// (or clears the selection on an empty slot); a double-click on an empty
+// slot opens the New Event dialog (temporary until the inspector popover).
+static void HandleContentClick(EventRecord *event, Point clickPoint)
+{
+    HitRegion hit;
+    if (!gUIRenderer->HitTest(clickPoint, &hit))
+    {
+        gLastClickValid = false;
+        return;
+    }
+
+    bool isDouble = false;
+    if (gLastClickValid && (long)(event->when - gLastClickTicks) <= GetDblTime())
+    {
+        if (hit.eventID != 0)
+            isDouble = (gLastClickEventID == hit.eventID);
+        else
+            isDouble = gLastClickEventID == 0 &&
+                       gLastClickYear == hit.date.year && gLastClickMonth == hit.date.month &&
+                       gLastClickDay == hit.date.day && gLastClickMinute == hit.minute;
+    }
+
+    if (isDouble)
+    {
+        gLastClickValid = false;
+    }
+    else
+    {
+        gLastClickValid = true;
+        gLastClickTicks = event->when;
+        gLastClickEventID = hit.eventID;
+        gLastClickYear = hit.date.year;
+        gLastClickMonth = hit.date.month;
+        gLastClickDay = hit.date.day;
+        gLastClickMinute = hit.minute;
+    }
+
+    Rect content = ContentBounds();
+    SetPort(gMainWindow);
+
+    unsigned long selected = gUIRenderer->GetSelectedEvent();
+    if (hit.eventID != selected)
+    {
+        gUIRenderer->SetSelectedEvent(hit.eventID);
+        InvalRect(&content);
+    }
+
+    if (isDouble && hit.eventID == 0 && gCalendar->GetCurrentView() != YearView)
+    {
+        if (ShowNewEventDialog(hit.date))
+        {
+            SetPort(gMainWindow);
+            InvalRect(&content);
+        }
+    }
 }
 
 // Classic XOR-line drag idiom (as used for e.g. Finder column resizing):
@@ -725,6 +911,9 @@ static bool HandleMiniCalendarClick(Point clickPoint)
 static void SwitchToView(ViewType view)
 {
     gCalendar->SetCurrentView(view);
+    if (view == DayView || view == WeekView)
+        gUIRenderer->SetTimeGridScroll(gUIRenderer->ScrollForMinute(8 * 60));
+    SyncTimeGridScrollBar();
     SetPort(gMainWindow);
     InvalRect(&gMainWindow->portRect);
 }
@@ -842,6 +1031,7 @@ static void HandleUpdateEvent(EventRecord *event)
             case MonthView: gUIRenderer->RenderMonthView(*gCalendar, bounds); break;
             case YearView:  gUIRenderer->RenderYearView(*gCalendar, bounds); break;
         }
+        SyncTimeGridScrollBar();
         DrawControls(window);
         DrawGrowIcon(window);
     }
@@ -868,9 +1058,14 @@ static void HandleWindowEvent(EventRecord *event)
             }
 
             ControlHandle control;
-            if (FindControl(clickPoint, window, &control) != 0)
+            short controlPart = FindControl(clickPoint, window, &control);
+            if (controlPart != 0)
             {
-                if (TrackControl(control, clickPoint, NULL))
+                if (control == gScrollBar)
+                {
+                    HandleTimeGridScrollClick(control, controlPart, clickPoint);
+                }
+                else if (TrackControl(control, clickPoint, NULL))
                 {
                     long ref = GetControlReference(control);
                     if (ref == kPrevMonthRefCon)
@@ -891,21 +1086,9 @@ static void HandleWindowEvent(EventRecord *event)
                     }
                 }
             }
-            else if (!HandleMiniCalendarClick(clickPoint) &&
-                     gCalendar->GetCurrentView() == MonthView)
+            else if (!HandleMiniCalendarClick(clickPoint))
             {
-                // mMonthList's rect was built directly from ContentBounds(),
-                // which is already in window-local coordinates (the same
-                // space clickPoint is already in) -- no further offset needed.
-                Date clickedDate;
-                if (gUIRenderer->HandleMonthClick(*gCalendar, clickPoint, &clickedDate))
-                {
-                    if (ShowNewEventDialog(clickedDate))
-                    {
-                        SetPort(gMainWindow);
-                        InvalRect(&gMainWindow->portRect);
-                    }
-                }
+                HandleContentClick(event, clickPoint);
             }
 
             break;
