@@ -57,6 +57,46 @@ struct Date
         if (m == 2 && IsLeapYear(y)) return 29;
         return days[m - 1];
     }
+
+    // Days since 1904-01-01 (serial 0, the Mac epoch), proleptic Gregorian.
+    // Pure integer arithmetic (days-from-civil), valid across leap years.
+    long ToSerial() const
+    {
+        return DaysFromCivil(year, month, day) - DaysFromCivil(1904, 1, 1);
+    }
+
+    static Date FromSerial(long serial)
+    {
+        long z = serial + DaysFromCivil(1904, 1, 1) + 719468L;
+        long era = (z >= 0 ? z : z - 146096L) / 146097L;
+        long doe = z - era * 146097L;
+        long yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        long y = yoe + era * 400;
+        long doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        long mp = (5 * doy + 2) / 153;
+        long d = doy - (153 * mp + 2) / 5 + 1;
+        long m = mp < 10 ? mp + 3 : mp - 9;
+        if (m <= 2) y++;
+        return Date((int)y, (int)m, (int)d);
+    }
+
+    Date AddDays(int delta) const
+    {
+        return FromSerial(ToSerial() + delta);
+    }
+
+private:
+    // Days since 1970-01-01 for a civil date.
+    static long DaysFromCivil(int yy, int m, int d)
+    {
+        long y = yy;
+        if (m <= 2) y--;
+        long era = (y >= 0 ? y : y - 399) / 400;
+        long yoe = y - era * 400;
+        long doy = (153L * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+        long doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        return era * 146097L + doe - 719468L;
+    }
 };
 
 class Event
@@ -100,6 +140,34 @@ public:
     void SetDescription(const std::string& description) { mDescription = description; }
     std::string GetDescription() const { return mDescription; }
 
+    // Identity. mID is runtime-only, assigned by Calendar::AddEvent (0 = none).
+    void SetID(unsigned long id) { mID = id; }
+    unsigned long GetID() const { return mID; }
+
+    // iCalendar UID (persisted)
+    void SetUID(const std::string& uid) { mUID = uid; }
+    std::string GetUID() const { return mUID; }
+
+    // Time of day, minutes after midnight (0..1440); ignored when all-day
+    void SetStartMinute(short m) { mStartMinute = m; }
+    short GetStartMinute() const { return mStartMinute; }
+    void SetEndMinute(short m) { mEndMinute = m; }
+    short GetEndMinute() const { return mEndMinute; }
+
+    // Alert, minutes before start (-1 = none)
+    void SetAlertMinutes(short m) { mAlertMinutes = m; }
+    short GetAlertMinutes() const { return mAlertMinutes; }
+
+    // Recurrence exceptions
+    void AddExDate(const Date& d) { if (!IsExDate(d)) mExDates.push_back(d); }
+    const std::vector<Date>& GetExDates() const { return mExDates; }
+    bool IsExDate(const Date& d) const
+    {
+        for (size_t i = 0; i < mExDates.size(); i++)
+            if (mExDates[i] == d) return true;
+        return false;
+    }
+
     // Comparison (for sorting and lookup)
     bool operator<(const Event& other) const
     {
@@ -108,10 +176,16 @@ public:
 
     bool operator==(const Event& other) const
     {
-        return mTitle == other.mTitle && mStartTime == other.mStartTime && mEndTime == other.mEndTime;
+        return mID == other.mID;
     }
 
 private:
+    unsigned long mID;
+    std::string mUID;
+    short mStartMinute;
+    short mEndMinute;
+    short mAlertMinutes;
+    std::vector<Date> mExDates;
     std::string mTitle;
     Date mStartTime;
     Date mEndTime;

@@ -33,42 +33,6 @@ static void DrawCString(const char* str)
     DrawString(pstr);
 }
 
-// Date has no day-increment of its own; this is the shared helper for
-// walking forward or backward across month/year boundaries.
-static Date AddDays(Date d, int delta)
-{
-    while (delta > 0)
-    {
-        int maxDay = Date::DaysInMonth(d.year, d.month);
-        if (d.day < maxDay)
-        {
-            d.day++;
-        }
-        else
-        {
-            d.day = 1;
-            d.month++;
-            if (d.month > 12) { d.month = 1; d.year++; }
-        }
-        delta--;
-    }
-    while (delta < 0)
-    {
-        if (d.day > 1)
-        {
-            d.day--;
-        }
-        else
-        {
-            d.month--;
-            if (d.month < 1) { d.month = 12; d.year--; }
-            d.day = Date::DaysInMonth(d.year, d.month);
-        }
-        delta++;
-    }
-    return d;
-}
-
 static void PaintEventSwatch(const Rect& swatch, const ColorRGB& color)
 {
     RGBColor rgb;
@@ -231,7 +195,7 @@ void UIRenderer::DrawDayViewGrid(const Calendar& calendar, const Date& date, con
         mDayList = NULL;
     }
 
-    std::vector<Event> events = calendar.GetEventsForDate(date);
+    std::vector<Occurrence> events = calendar.GetOccurrencesForDate(date);
     int rowCount = events.empty() ? 1 : (int)events.size();
 
     Rect listRect;
@@ -258,7 +222,7 @@ void UIRenderer::DrawEventsForDay(const Calendar& calendar, const Date& date, co
     if (!mDayList)
         return;
 
-    std::vector<Event> events = calendar.GetEventsForDate(date);
+    std::vector<Occurrence> events = calendar.GetOccurrencesForDate(date);
 
     if (events.empty())
     {
@@ -272,10 +236,10 @@ void UIRenderer::DrawEventsForDay(const Calendar& calendar, const Date& date, co
 
     for (size_t i = 0; i < events.size(); i++)
     {
-        std::string label = events[i].GetTitle();
-        if (!events[i].GetCategory().empty())
+        std::string label = events[i].event->GetTitle();
+        if (!events[i].event->GetCategory().empty())
         {
-            label += "  (" + events[i].GetCategory() + ")";
+            label += "  (" + events[i].event->GetCategory() + ")";
         }
 
         char rowBuf[64];
@@ -294,7 +258,7 @@ void UIRenderer::DrawEventsForDay(const Calendar& calendar, const Date& date, co
 void UIRenderer::DrawWeekViewHeader(const Calendar& calendar, const Rect& bounds)
 {
     Date date = calendar.GetCurrentDate();
-    Date weekStart = AddDays(date, -date.DayOfWeek());
+    Date weekStart = date.AddDays(-date.DayOfWeek());
     int colWidth = (bounds.right - bounds.left) / 7;
 
     TextSize(11);
@@ -302,7 +266,7 @@ void UIRenderer::DrawWeekViewHeader(const Calendar& calendar, const Rect& bounds
 
     for (int i = 0; i < 7; i++)
     {
-        Date d = AddDays(weekStart, i);
+        Date d = weekStart.AddDays(i);
 
         char buf[24];
         snprintf(buf, sizeof(buf), "%s %d", kWeekdayNames[i], d.day);
@@ -332,15 +296,15 @@ void UIRenderer::DrawWeekViewGrid(const Rect& bounds)
 void UIRenderer::DrawEventsForWeek(const Calendar& calendar, const Rect& bounds)
 {
     Date date = calendar.GetCurrentDate();
-    Date weekStart = AddDays(date, -date.DayOfWeek());
+    Date weekStart = date.AddDays(-date.DayOfWeek());
     int colWidth = (bounds.right - bounds.left) / 7;
 
     TextSize(9);
 
     for (int i = 0; i < 7; i++)
     {
-        Date d = AddDays(weekStart, i);
-        std::vector<Event> events = calendar.GetEventsForDate(d);
+        Date d = weekStart.AddDays(i);
+        std::vector<Occurrence> events = calendar.GetOccurrencesForDate(d);
 
         short rowY = bounds.top + 34;
         for (size_t e = 0; e < events.size(); e++)
@@ -351,10 +315,10 @@ void UIRenderer::DrawEventsForWeek(const Calendar& calendar, const Rect& bounds)
             swatch.bottom = swatch.top + 8;
             swatch.right = swatch.left + 8;
 
-            PaintEventSwatch(swatch, LookupCategoryColor(calendar, events[e].GetCategory()));
+            PaintEventSwatch(swatch, LookupCategoryColor(calendar, events[e].event->GetCategory()));
 
             char buf[16];
-            snprintf(buf, sizeof(buf), "%.8s", events[e].GetTitle().c_str());
+            snprintf(buf, sizeof(buf), "%.8s", events[e].event->GetTitle().c_str());
             MoveTo(swatch.right + 2, swatch.bottom);
             DrawCString(buf);
 
@@ -458,7 +422,7 @@ void UIRenderer::DrawEventsForMonth(const Calendar& calendar, const Rect& bounds
     for (int day = 1; day <= daysInMonth; day++)
     {
         Date cellDate(date.year, date.month, day);
-        std::vector<Event> events = calendar.GetEventsForDate(cellDate);
+        std::vector<Occurrence> events = calendar.GetOccurrencesForDate(cellDate);
         if (events.empty())
             continue;
 
@@ -476,10 +440,10 @@ void UIRenderer::DrawEventsForMonth(const Calendar& calendar, const Rect& bounds
         swatch.bottom = swatch.top + 8;
         swatch.right = swatch.left + 8;
 
-        PaintEventSwatch(swatch, LookupCategoryColor(calendar, events[0].GetCategory()));
+        PaintEventSwatch(swatch, LookupCategoryColor(calendar, events[0].event->GetCategory()));
 
         char titleBuf[16];
-        snprintf(titleBuf, sizeof(titleBuf), "%.10s", events[0].GetTitle().c_str());
+        snprintf(titleBuf, sizeof(titleBuf), "%.10s", events[0].event->GetTitle().c_str());
         MoveTo(swatch.right + 3, swatch.bottom);
         DrawCString(titleBuf);
     }

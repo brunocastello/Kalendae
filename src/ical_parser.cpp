@@ -167,8 +167,6 @@ void ICALParser::ExportCalendar(const Calendar& calendar, const std::string& fil
         file << "PRODID:-//Kalendae//Mac OS 9 Calendar//EN\n";
 
         // Export each event
-        std::vector<Event> events = calendar.GetEventsForDate(Date(2026, 8, 31)); // Simplified
-
         // In a real implementation, you would iterate over all events
         // For this demo, let's just add a sample event
 

@@ -7,12 +7,14 @@
 #include "event.h"
 #include "calendar.h"
 
-Event::Event() : mAllDay(false)
+Event::Event()
+    : mID(0), mStartMinute(9 * 60), mEndMinute(10 * 60), mAlertMinutes(-1), mAllDay(false)
 {
 }
 
 Event::Event(const std::string& title, const Date& startDate, const Date& endDate)
-    : mTitle(title), mStartTime(startDate), mEndTime(endDate), mAllDay(false)
+    : mID(0), mStartMinute(9 * 60), mEndMinute(10 * 60), mAlertMinutes(-1),
+      mTitle(title), mStartTime(startDate), mEndTime(endDate), mAllDay(false)
 {
 }
 

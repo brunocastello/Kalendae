@@ -31,6 +31,15 @@ enum ViewType
     YearView
 };
 
+// One appearance of an event on a given date. `event` points into the
+// Calendar's storage and is only valid until the next Calendar mutation.
+struct Occurrence
+{
+    unsigned long eventID;
+    Date date;
+    const Event* event;
+};
+
 class Calendar
 {
 public:
@@ -42,12 +51,28 @@ public:
     void SaveToPreferences();
 
     // Event management
-    void AddEvent(const Event& event);
-    void RemoveEvent(const Event& event);
+    unsigned long AddEvent(const Event& event);   // returns the assigned ID
+    Event* FindEvent(unsigned long id);
+    const Event* FindEvent(unsigned long id) const;
+    bool UpdateEvent(const Event& event);          // matched by ID, keeps ID
+    bool RemoveEvent(unsigned long id);
+    void AddExDate(unsigned long id, const Date& date);
 
-    // Event querying
-    std::vector<Event> GetEventsForDate(const Date& date) const;
-    std::vector<Event> GetEventsForPeriod(const Date& startDate, const Date& endDate) const;
+    // Event querying (all-day first, then start minute, then title;
+    // hidden categories and ExDates are skipped)
+    std::vector<Occurrence> GetOccurrencesForDate(const Date& date) const;
+    std::vector<Occurrence> GetOccurrencesInRange(const Date& start, const Date& end) const;
+    const std::vector<Event>& GetAllEvents() const { return mEvents; }
+
+    // Category visibility (missing key = visible)
+    void SetCategoryVisible(const std::string& name, bool visible);
+    bool IsCategoryVisible(const std::string& name) const;
+
+    // Dirty tracking
+    bool IsDirty() const { return mDirty; }
+    void ClearDirty() { mDirty = false; }
+
+    static Date Today();
 
     // View management
     void SetCurrentView(ViewType view);
@@ -71,6 +96,7 @@ public:
     void AddCategory(const std::string& name, const ColorRGB& color)
     {
         mCategories[name] = color;
+        mDirty = true;
     }
 
     const std::map<std::string, ColorRGB>& GetCategories() const
@@ -83,6 +109,11 @@ private:
     Date mCurrentDate;
     std::vector<Event> mEvents;
     std::map<std::string, ColorRGB> mCategories;
+    std::map<std::string, bool> mCategoryVisible;
+    unsigned long mNextID;
+    bool mDirty;
+
+    void AppendOccurrences(std::vector<Occurrence>& out, const Date& date) const;
 };
 
 #endif // CALENDAR_H
