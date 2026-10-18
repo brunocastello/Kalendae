@@ -55,6 +55,11 @@ public:
     // Day/Week time grid scrolling. The grid is 24 hours of kHourHeight.
     // GetTimeGridViewRect reserves 16px on the right of contentBounds for the
     // scroll bar; the header/all-day heights come from the last render.
+    // Computes the header / all-day strip heights for the calendar's current
+    // view and date, so the view rect is valid before any render.
+    void ComputeTimeGridLayout(const Calendar& calendar);
+    // 8 AM, or earlier when a visible day has an earlier timed event.
+    short DefaultTimeGridScroll(const Calendar& calendar) const;
     Rect GetTimeGridViewRect(const Rect& contentBounds) const;
     short GetTimeGridMaxScroll(const Rect& contentBounds) const;
     void SetTimeGridScroll(short px) { mTimeGridScroll = px; }

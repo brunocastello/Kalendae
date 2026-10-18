@@ -3,7 +3,7 @@
  *
  * UI Rendering engine -- draws directly into the current port. Every view
  * is hand-drawn and registers a hit map (mHits) that main.cpp queries with
- * HitTest, so there is no List Manager involved.
+ * HitTest.
  */
 
 #include "ui_renderer.h"
@@ -128,6 +128,30 @@ static void DrawFitted(const std::string& str, short x, short baseline, short ma
 
     MoveTo(x, baseline);
     DrawText(buf, 0, (short)len);
+}
+
+// Minutes the occurrence covers on its own date. A timed event spanning
+// several days starts at 00:00 after its first day and runs to 24:00 until
+// its last. Returns false when nothing is left to draw on that date.
+static bool OccurrenceMinutes(const Occurrence& occ, short* startMin, short* endMin)
+{
+    const Event* ev = occ.event;
+    short s = ev->GetStartMinute();
+    short e = ev->GetEndMinute();
+    if (!ev->IsRecurring())
+    {
+        if (occ.date > ev->GetStartTime()) s = 0;
+        if (occ.date < ev->GetEndTime()) e = 1440;
+    }
+    if (e <= s)
+        return false;
+    if (s < 0) s = 0;
+    if (s > 1410) s = 1410;
+    if (e < s + 30) e = s + 30;
+    if (e > 1440) e = 1440;
+    *startMin = s;
+    *endMin = e;
+    return true;
 }
 
 static void FormatTime(short minute, char* out, size_t outSize)
@@ -523,6 +547,56 @@ void UIRenderer::RenderWeekView(const Calendar& calendar, const Rect& bounds)
     RenderTimeGrid(calendar, bounds, true);
 }
 
+// Header and all-day strip heights depend only on the calendar's current
+// view and date, so they can be known before (and without) rendering.
+void UIRenderer::ComputeTimeGridLayout(const Calendar& calendar)
+{
+    bool weekMode = (calendar.GetCurrentView() == WeekView);
+    int numCols = weekMode ? 7 : 1;
+    Date cur = calendar.GetCurrentDate();
+    Date first = weekMode ? cur.AddDays(-cur.DayOfWeek()) : cur;
+
+    int maxAllDay = 0;
+    for (int i = 0; i < numCols; i++)
+    {
+        std::vector<Occurrence> occ = calendar.GetOccurrencesForDate(first.AddDays(i));
+        int n = 0;
+        for (size_t k = 0; k < occ.size(); k++)
+            if (occ[k].event->IsAllDay())
+                n++;
+        if (n > maxAllDay)
+            maxAllDay = n;
+    }
+    if (maxAllDay > 5) maxAllDay = 5;
+
+    mHeaderHeight = weekMode ? 54 : 34;
+    mAllDayHeight = (short)(4 + maxAllDay * 14);
+    if (mAllDayHeight < 20) mAllDayHeight = 20;
+}
+
+// Scroll offset to use when entering Day/Week: 8 AM, or earlier if a
+// visible day has a timed event starting before that.
+short UIRenderer::DefaultTimeGridScroll(const Calendar& calendar) const
+{
+    bool weekMode = (calendar.GetCurrentView() == WeekView);
+    int numCols = weekMode ? 7 : 1;
+    Date cur = calendar.GetCurrentDate();
+    Date first = weekMode ? cur.AddDays(-cur.DayOfWeek()) : cur;
+
+    short minute = 8 * 60;
+    for (int i = 0; i < numCols; i++)
+    {
+        std::vector<Occurrence> occ = calendar.GetOccurrencesForDate(first.AddDays(i));
+        for (size_t k = 0; k < occ.size(); k++)
+        {
+            short sm, em;
+            if (!occ[k].event->IsAllDay() && OccurrenceMinutes(occ[k], &sm, &em) && sm < minute)
+                minute = sm;
+        }
+    }
+    return ScrollForMinute(minute);
+}
+
 Rect UIRenderer::GetTimeGridViewRect(const Rect& contentBounds) const
 {
     Rect r;
@@ -582,23 +656,17 @@ void UIRenderer::RenderTimeGrid(const Calendar& calendar, const Rect& bounds, bo
     EraseRect(&bounds);
     ForeRGB(0, 0, 0);
 
-    mHeaderHeight = weekMode ? 54 : 34;
+    ComputeTimeGridLayout(calendar);
+    int maxAllDay = (mAllDayHeight - 4) / 14;
 
-    // All-day events per visible day decide the strip height.
     std::vector<Occurrence> allDay[7];
-    int maxAllDay = 0;
     for (int i = 0; i < numCols; i++)
     {
         std::vector<Occurrence> occ = calendar.GetOccurrencesForDate(first.AddDays(i));
         for (size_t k = 0; k < occ.size(); k++)
             if (occ[k].event->IsAllDay())
                 allDay[i].push_back(occ[k]);
-        if ((int)allDay[i].size() > maxAllDay)
-            maxAllDay = (int)allDay[i].size();
     }
-    if (maxAllDay > 5) maxAllDay = 5;
-    mAllDayHeight = (short)(4 + maxAllDay * 14);
-    if (mAllDayHeight < 20) mAllDayHeight = 20;
 
     short colLeft = bounds.left + kGutterWidth;
     short colRight = bounds.right - kScrollBarReserve;
@@ -709,7 +777,17 @@ void UIRenderer::RenderTimeGrid(const Calendar& calendar, const Rect& bounds, bo
         slot.minute = -1;
         mHits.push_back(slot);
 
-        for (int k = 0; k < (int)allDay[i].size() && k < maxAllDay; k++)
+        int total = (int)allDay[i].size();
+        int shownBars = (total > maxAllDay && maxAllDay > 0) ? maxAllDay - 1 : total;
+        if (total > maxAllDay && maxAllDay > 0)
+        {
+            char more[24];
+            snprintf(more, sizeof(more), "+%d more", total - shownBars);
+            ForeRGB(128, 128, 128);
+            MoveTo(x0 + 6, strip.top + 2 + shownBars * 14 + 10);
+            DrawCString(more);
+        }
+        for (int k = 0; k < shownBars; k++)
         {
             const Occurrence& occ = allDay[i][k];
             ColorRGB color = LookupCategoryColor(calendar, occ.event->GetCategory());
@@ -856,12 +934,8 @@ void UIRenderer::DrawTimeGridHourArea(const Calendar& calendar, const Rect& boun
                 continue;
             TimedBlock b;
             b.occ = occ[k];
-            b.startMin = occ[k].event->GetStartMinute();
-            b.endMin = occ[k].event->GetEndMinute();
-            if (b.startMin < 0) b.startMin = 0;
-            if (b.startMin > 1410) b.startMin = 1410;
-            if (b.endMin < b.startMin + 30) b.endMin = b.startMin + 30;
-            if (b.endMin > 1440) b.endMin = 1440;
+            if (!OccurrenceMinutes(occ[k], &b.startMin, &b.endMin))
+                continue;
             b.lane = 0;
             b.lanes = 1;
             blocks.push_back(b);
@@ -912,10 +986,17 @@ void UIRenderer::DrawTimeGridHourArea(const Calendar& calendar, const Rect& boun
             ColorRGB color = LookupCategoryColor(calendar, b.occ.event->GetCategory());
             bool selected = (b.occ.eventID != 0 && b.occ.eventID == mSelectedEvent);
 
-            short laneW = usable / b.lanes;
+            // Lanes narrower than 4px overlap instead of shrinking away.
+            short step = usable / b.lanes;
+            short offset = b.lane * step;
+            if (offset > usable - 4) offset = usable - 4;
+            if (offset < 0) offset = 0;
             Rect blk;
-            blk.left = x0 + 1 + b.lane * laneW;
-            blk.right = (b.lane == b.lanes - 1) ? (x0 + 1 + usable) : (blk.left + laneW - 1);
+            blk.left = x0 + 1 + offset;
+            if (step < 4)
+                blk.right = blk.left + 4;
+            else
+                blk.right = (b.lane == b.lanes - 1) ? (x0 + 1 + usable) : (blk.left + step - 1);
             blk.top = gridTop + (short)((long)b.startMin * kHourHeight / 60);
             blk.bottom = gridTop + (short)((long)b.endMin * kHourHeight / 60) - 1;
             if (blk.bottom < blk.top + 10) blk.bottom = blk.top + 10;

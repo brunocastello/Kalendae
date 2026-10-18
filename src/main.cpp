@@ -309,14 +309,19 @@ static void SyncTimeGridScrollBar()
         return;
     }
 
+    // The layout heights are recomputed from the calendar here, so the bar's
+    // rect never depends on what was last rendered.
+    gUIRenderer->ComputeTimeGridLayout(*gCalendar);
     Rect content = ContentBounds();
     Rect viewRect = gUIRenderer->GetTimeGridViewRect(content);
 
+    // Standard scroll bar idiom: overlaps the window edge by one pixel and
+    // runs down to the grow box.
     Rect r;
     r.top = viewRect.top - 1;
-    r.bottom = content.bottom - 15; // leave the grow icon alone
-    r.left = viewRect.right;
-    r.right = content.right;
+    r.bottom = gMainWindow->portRect.bottom - 14;
+    r.right = gMainWindow->portRect.right + 1;
+    r.left = r.right - 16;
     if (r.bottom <= r.top + 32)
         return;
 
@@ -397,7 +402,15 @@ static void HandleContentClick(EventRecord *event, Point clickPoint)
     HitRegion hit;
     if (!gUIRenderer->HitTest(clickPoint, &hit))
     {
+        // A click that misses every region still deselects.
         gLastClickValid = false;
+        if (gUIRenderer->GetSelectedEvent() != 0)
+        {
+            gUIRenderer->SetSelectedEvent(0);
+            Rect content = ContentBounds();
+            SetPort(gMainWindow);
+            InvalRect(&content);
+        }
         return;
     }
 
@@ -441,6 +454,7 @@ static void HandleContentClick(EventRecord *event, Point clickPoint)
     {
         if (ShowNewEventDialog(hit.date))
         {
+            SyncTimeGridScrollBar();
             SetPort(gMainWindow);
             InvalRect(&content);
         }
@@ -804,6 +818,7 @@ static void ChangeMonth(int delta)
     int day = d.day > maxDay ? maxDay : d.day;
 
     gCalendar->SetCurrentDate(Date(year, month, day));
+    SyncTimeGridScrollBar();
     SetPort(gMainWindow);
     InvalRect(&gMainWindow->portRect);
 }
@@ -910,9 +925,15 @@ static bool HandleMiniCalendarClick(Point clickPoint)
 
 static void SwitchToView(ViewType view)
 {
+    ViewType previous = gCalendar->GetCurrentView();
     gCalendar->SetCurrentView(view);
-    if (view == DayView || view == WeekView)
-        gUIRenderer->SetTimeGridScroll(gUIRenderer->ScrollForMinute(8 * 60));
+    // Only a fresh entry into the time grid resets the scroll position.
+    if ((view == DayView || view == WeekView) &&
+        (previous == MonthView || previous == YearView))
+    {
+        gUIRenderer->ComputeTimeGridLayout(*gCalendar);
+        gUIRenderer->SetTimeGridScroll(gUIRenderer->DefaultTimeGridScroll(*gCalendar));
+    }
     SyncTimeGridScrollBar();
     SetPort(gMainWindow);
     InvalRect(&gMainWindow->portRect);
@@ -1031,7 +1052,6 @@ static void HandleUpdateEvent(EventRecord *event)
             case MonthView: gUIRenderer->RenderMonthView(*gCalendar, bounds); break;
             case YearView:  gUIRenderer->RenderYearView(*gCalendar, bounds); break;
         }
-        SyncTimeGridScrollBar();
         DrawControls(window);
         DrawGrowIcon(window);
     }
