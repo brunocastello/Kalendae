@@ -22,8 +22,11 @@ OSErr ReadFileToString(const FSSpec& specIn, std::string& out)
 
     long eof = 0;
     err = GetEOF(refNum, &eof);
-    if (err == noErr && eof > 0 && eof > MaxBlock() / 3)
-        err = memFullErr;   // leave room for the parsed copy of the data
+    // Leave room for the parsed copy of the data. Small files are always
+    // fine in our partition, so only large ones are checked.
+    const long kAlwaysFits = 256L * 1024;
+    if (err == noErr && eof > kAlwaysFits && eof > MaxBlock() / 3)
+        err = memFullErr;
     if (err == noErr && eof > 0)
     {
         out.resize((size_t)eof);

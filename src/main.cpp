@@ -14,6 +14,7 @@
 #include <Events.h>
 #include <Processes.h>
 #include <OSUtils.h>
+#include <MacMemory.h>
 #include <cstdio>
 #include <cstring>
 #include "calendar.h"
@@ -184,6 +185,12 @@ static void HandleUpdateEvent(EventRecord *event);
 
 int main()
 {
+    // Grow the application heap to the full partition before anything is
+    // allocated; otherwise MaxBlock() only sees the small initial zone.
+    MaxApplZone();
+    for (int i = 0; i < 4; i++)
+        MoreMasters();
+
     // Construct the app's objects explicitly, now that we're definitely
     // running (see the comment on the globals above for why).
     gCalendar = new Calendar();
